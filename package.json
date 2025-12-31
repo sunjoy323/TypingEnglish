@@ -1,0 +1,14 @@
+{
+  "name": "typingenglish",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "pages:dev": "wrangler pages dev public",
+    "pages:deploy": "wrangler pages deploy public"
+  },
+  "devDependencies": {
+    "wrangler": "3.112.0"
+  }
+}
