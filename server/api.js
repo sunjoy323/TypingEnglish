@@ -120,6 +120,45 @@ function ok(data = {}, init = {}) {
   return json({ success: true, ...data }, init);
 }
 
+function mapInternalError(err) {
+  const raw = err instanceof Error ? err.message : String(err);
+
+  if (raw.includes('Missing D1 binding')) {
+    return {
+      status: 503,
+      code: 'DB_NOT_BOUND',
+      message: '服务端未配置数据库（D1）。请在 Cloudflare 中绑定 D1：变量名必须为 DB，并执行数据库迁移后再试。'
+    };
+  }
+
+  if (raw.includes('no such table')) {
+    return {
+      status: 503,
+      code: 'DB_SCHEMA_MISSING',
+      message: '数据库尚未初始化（缺少表）。请先执行 D1 migrations（migrations/0001_init.sql），再重试。'
+    };
+  }
+
+  if (raw.includes('UNIQUE constraint failed: users.username')) {
+    return { status: 409, code: 'USERNAME_TAKEN', message: '用户名已存在' };
+  }
+
+  if (raw.includes('UNIQUE constraint failed: users.email')) {
+    return { status: 409, code: 'EMAIL_TAKEN', message: '邮箱已被注册' };
+  }
+
+  return { status: 500, code: 'INTERNAL_ERROR', message: '服务器内部错误，请稍后重试' };
+}
+
+async function safe(handler) {
+  try {
+    return await handler();
+  } catch (err) {
+    const mapped = mapInternalError(err);
+    return error(mapped.message, mapped.status, { code: mapped.code });
+  }
+}
+
 function normalizeString(value) {
   if (typeof value !== 'string') return '';
   return value.trim();
@@ -392,325 +431,391 @@ function checkAchievementsAndApply(userDto) {
 }
 
 export async function handleHealth(request, env) {
-  if (request.method !== 'GET') return error('Method Not Allowed', 405);
-  try {
-    await requireDb(env);
-  } catch {
-    return ok({ ok: true, db: false });
-  }
-  return ok({ ok: true, db: true });
+  return safe(async () => {
+    if (request.method !== 'GET') return error('Method Not Allowed', 405);
+
+    let db;
+    try {
+      db = await requireDb(env);
+    } catch {
+      return ok({ ok: true, db: false, schema: { users: false, sessions: false, gameRecords: false } });
+    }
+
+    const tables = await db
+      .prepare(
+        `
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'table' AND name IN ('users', 'sessions', 'game_records')
+      `
+      )
+      .all();
+
+    const names = new Set((tables.results || []).map((r) => r.name));
+
+    return ok({
+      ok: true,
+      db: true,
+      schema: {
+        users: names.has('users'),
+        sessions: names.has('sessions'),
+        gameRecords: names.has('game_records')
+      }
+    });
+  });
 }
 
 export async function handleRegister(request, env) {
-  if (request.method !== 'POST') return error('Method Not Allowed', 405);
+  return safe(async () => {
+    if (request.method !== 'POST') return error('Method Not Allowed', 405);
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return error('请求体必须为 JSON');
-  }
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return error('请求体必须为 JSON');
+    }
 
-  const username = normalizeString(body.username);
-  const email = normalizeString(body.email);
-  const password = typeof body.password === 'string' ? body.password : '';
+    const username = normalizeString(body.username);
+    const email = normalizeString(body.email);
+    const password = typeof body.password === 'string' ? body.password : '';
 
-  if (!isValidUsername(username)) {
-    return error('用户名格式不正确（3-20位字母、数字或下划线）');
-  }
-  if (!isValidEmail(email)) {
-    return error('邮箱格式不正确');
-  }
-  if (password.length < 6) {
-    return error('密码长度至少6个字符');
-  }
+    if (!isValidUsername(username)) {
+      return error('用户名格式不正确（3-20位字母、数字或下划线）');
+    }
+    if (!isValidEmail(email)) {
+      return error('邮箱格式不正确');
+    }
+    if (password.length < 6) {
+      return error('密码长度至少6个字符');
+    }
 
-  const db = await requireDb(env);
+    const db = await requireDb(env);
 
-  const existingUsername = await db.prepare('SELECT 1 FROM users WHERE username = ? LIMIT 1').bind(username).first();
-  if (existingUsername) return error('用户名已存在');
+    const existingUsername = await db.prepare('SELECT 1 FROM users WHERE username = ? LIMIT 1').bind(username).first();
+    if (existingUsername) return error('用户名已存在');
 
-  const existingEmail = await db.prepare('SELECT 1 FROM users WHERE email = ? LIMIT 1').bind(email).first();
-  if (existingEmail) return error('邮箱已被注册');
+    const existingEmail = await db.prepare('SELECT 1 FROM users WHERE email = ? LIMIT 1').bind(email).first();
+    if (existingEmail) return error('邮箱已被注册');
 
-  const now = Date.now();
-  const userId = crypto.randomUUID();
-  const passwordHash = await hashPassword(password);
-  const settings = JSON.stringify({ soundEnabled: true, highlightEnabled: true, gameDuration: 120, soundVolume: 0.5 });
+    const now = Date.now();
+    const userId = crypto.randomUUID();
+    const passwordHash = await hashPassword(password);
+    const settings = JSON.stringify({
+      soundEnabled: true,
+      highlightEnabled: true,
+      gameDuration: 120,
+      soundVolume: 0.5
+    });
 
-  await db
-    .prepare(
+    await db
+      .prepare(
+        `
+        INSERT INTO users (
+          id, username, email, password_hash,
+          created_at, updated_at,
+          settings_json, unlocked_achievements_json, difficulties_completed_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, '[]', '[]')
       `
-      INSERT INTO users (
-        id, username, email, password_hash,
-        created_at, updated_at,
-        settings_json, unlocked_achievements_json, difficulties_completed_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, '[]', '[]')
-    `
-    )
-    .bind(userId, username, email, passwordHash, now, now, settings)
-    .run();
+      )
+      .bind(userId, username, email, passwordHash, now, now, settings)
+      .run();
 
-  return ok({ message: '注册成功' }, { status: 201 });
+    return ok({ message: '注册成功' }, { status: 201 });
+  });
 }
 
 export async function handleLogin(request, env) {
-  if (request.method !== 'POST') return error('Method Not Allowed', 405);
+  return safe(async () => {
+    if (request.method !== 'POST') return error('Method Not Allowed', 405);
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return error('请求体必须为 JSON');
-  }
-
-  const username = normalizeString(body.username);
-  const password = typeof body.password === 'string' ? body.password : '';
-
-  const db = await requireDb(env);
-  await cleanupExpiredSessions(db, Date.now());
-
-  const row = await db.prepare('SELECT * FROM users WHERE username = ? LIMIT 1').bind(username).first();
-  if (!row) return error('用户名或密码错误', 401);
-
-  const isOk = await verifyPassword(password, row.password_hash);
-  if (!isOk) return error('用户名或密码错误', 401);
-
-  const session = await createSessionForUser(request, env, row.id);
-  const user = toUserDto(row);
-
-  return ok(
-    { message: '登录成功', user },
-    {
-      headers: {
-        'Set-Cookie': session.cookie
-      }
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return error('请求体必须为 JSON');
     }
-  );
+
+    const username = normalizeString(body.username);
+    const password = typeof body.password === 'string' ? body.password : '';
+
+    const db = await requireDb(env);
+    await cleanupExpiredSessions(db, Date.now());
+
+    const row = await db.prepare('SELECT * FROM users WHERE username = ? LIMIT 1').bind(username).first();
+    if (!row) return error('用户名或密码错误', 401);
+
+    const isOk = await verifyPassword(password, row.password_hash);
+    if (!isOk) return error('用户名或密码错误', 401);
+
+    const session = await createSessionForUser(request, env, row.id);
+    const user = toUserDto(row);
+
+    return ok(
+      { message: '登录成功', user },
+      {
+        headers: {
+          'Set-Cookie': session.cookie
+        }
+      }
+    );
+  });
 }
 
 export async function handleLogout(request, env) {
-  if (request.method !== 'POST') return error('Method Not Allowed', 405);
+  return safe(async () => {
+    if (request.method !== 'POST') return error('Method Not Allowed', 405);
 
-  try {
-    await deleteSession(request, env);
-  } catch {
-    // ignore if DB missing; still clear cookie
-  }
-
-  return ok(
-    { message: '已退出登录' },
-    {
-      headers: {
-        'Set-Cookie': buildLogoutCookieValue({ requestUrl: request.url })
-      }
+    try {
+      await deleteSession(request, env);
+    } catch {
+      // ignore if DB missing; still clear cookie
     }
-  );
+
+    return ok(
+      { message: '已退出登录' },
+      {
+        headers: {
+          'Set-Cookie': buildLogoutCookieValue({ requestUrl: request.url })
+        }
+      }
+    );
+  });
 }
 
 export async function handleMe(request, env) {
-  if (request.method !== 'GET') return error('Method Not Allowed', 405);
-  const user = await getUserBySession(request, env);
-  if (!user) return error('未登录', 401);
-  return ok({ user });
+  return safe(async () => {
+    if (request.method !== 'GET') return error('Method Not Allowed', 405);
+    const user = await getUserBySession(request, env);
+    if (!user) return error('未登录', 401);
+    return ok({ user });
+  });
 }
 
 export async function handleSettings(request, env) {
-  if (request.method !== 'PATCH') return error('Method Not Allowed', 405);
+  return safe(async () => {
+    if (request.method !== 'PATCH') return error('Method Not Allowed', 405);
 
-  const current = await getUserBySession(request, env);
-  if (!current) return error('未登录', 401);
+    const current = await getUserBySession(request, env);
+    if (!current) return error('未登录', 401);
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return error('请求体必须为 JSON');
-  }
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return error('请求体必须为 JSON');
+    }
 
-  let patch = {};
-  if (body && typeof body === 'object' && body.settings && typeof body.settings === 'object') {
-    patch = body.settings;
-  } else if (body && typeof body.key === 'string') {
-    patch = { [body.key]: body.value };
-  } else {
-    return error('参数不正确');
-  }
+    let patch = {};
+    if (body && typeof body === 'object' && body.settings && typeof body.settings === 'object') {
+      patch = body.settings;
+    } else if (body && typeof body.key === 'string') {
+      patch = { [body.key]: body.value };
+    } else {
+      return error('参数不正确');
+    }
 
-  const allowedKeys = new Set(['soundEnabled', 'highlightEnabled', 'gameDuration', 'soundVolume']);
-  const sanitizedPatch = {};
-  for (const [k, v] of Object.entries(patch)) {
-    if (!allowedKeys.has(k)) continue;
-    sanitizedPatch[k] = v;
-  }
+    const allowedKeys = new Set(['soundEnabled', 'highlightEnabled', 'gameDuration', 'soundVolume']);
+    const sanitizedPatch = {};
+    for (const [k, v] of Object.entries(patch)) {
+      if (!allowedKeys.has(k)) continue;
+      sanitizedPatch[k] = v;
+    }
 
-  if (Object.keys(sanitizedPatch).length === 0) {
-    return ok({ message: '无可更新项', user: current });
-  }
+    if (Object.keys(sanitizedPatch).length === 0) {
+      return ok({ message: '无可更新项', user: current });
+    }
 
-  const db = await requireDb(env);
-  const row = await db.prepare('SELECT * FROM users WHERE id = ? LIMIT 1').bind(current.id).first();
-  if (!row) return error('用户不存在', 404);
+    const db = await requireDb(env);
+    const row = await db.prepare('SELECT * FROM users WHERE id = ? LIMIT 1').bind(current.id).first();
+    if (!row) return error('用户不存在', 404);
 
-  const existing = parseJsonField(row.settings_json, {});
-  const merged = { ...existing, ...sanitizedPatch };
+    const existing = parseJsonField(row.settings_json, {});
+    const merged = { ...existing, ...sanitizedPatch };
 
-  if (merged.gameDuration !== undefined) {
-    merged.gameDuration = clampInt(merged.gameDuration, 30, 3600);
-  }
-  if (merged.soundVolume !== undefined) {
-    const n = Number(merged.soundVolume);
-    merged.soundVolume = Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0.5;
-  }
-  if (merged.soundEnabled !== undefined) merged.soundEnabled = Boolean(merged.soundEnabled);
-  if (merged.highlightEnabled !== undefined) merged.highlightEnabled = Boolean(merged.highlightEnabled);
+    if (merged.gameDuration !== undefined) {
+      merged.gameDuration = clampInt(merged.gameDuration, 30, 3600);
+    }
+    if (merged.soundVolume !== undefined) {
+      const n = Number(merged.soundVolume);
+      merged.soundVolume = Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0.5;
+    }
+    if (merged.soundEnabled !== undefined) merged.soundEnabled = Boolean(merged.soundEnabled);
+    if (merged.highlightEnabled !== undefined) merged.highlightEnabled = Boolean(merged.highlightEnabled);
 
-  const now = Date.now();
-  await db
-    .prepare('UPDATE users SET settings_json = ?, updated_at = ? WHERE id = ?')
-    .bind(JSON.stringify(merged), now, current.id)
-    .run();
+    const now = Date.now();
+    await db
+      .prepare('UPDATE users SET settings_json = ?, updated_at = ? WHERE id = ?')
+      .bind(JSON.stringify(merged), now, current.id)
+      .run();
 
-  const updated = await db.prepare('SELECT * FROM users WHERE id = ? LIMIT 1').bind(current.id).first();
-  return ok({ message: '设置已更新', user: toUserDto(updated) });
+    const updated = await db.prepare('SELECT * FROM users WHERE id = ? LIMIT 1').bind(current.id).first();
+    return ok({ message: '设置已更新', user: toUserDto(updated) });
+  });
 }
 
 export async function handleScores(request, env) {
-  if (request.method !== 'POST') return error('Method Not Allowed', 405);
+  return safe(async () => {
+    if (request.method !== 'POST') return error('Method Not Allowed', 405);
 
-  const current = await getUserBySession(request, env);
-  if (!current) return error('未登录', 401);
+    const current = await getUserBySession(request, env);
+    if (!current) return error('未登录', 401);
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return error('请求体必须为 JSON');
-  }
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return error('请求体必须为 JSON');
+    }
 
-  const difficulty = normalizeString(body.difficulty);
-  if (!['easy', 'medium', 'hard', 'expert'].includes(difficulty)) {
-    return error('难度不正确');
-  }
+    const difficulty = normalizeString(body.difficulty);
+    if (!['easy', 'medium', 'hard', 'expert'].includes(difficulty)) {
+      return error('难度不正确');
+    }
 
-  const durationSeconds = clampInt(body.durationSeconds ?? body.duration ?? 0, 1, 24 * 60 * 60);
-  const totalChars = clampInt(body.totalChars ?? 0, 0, 1_000_000);
-  const correctChars = clampInt(body.correctChars ?? 0, 0, totalChars);
-  const wordsCompleted = clampInt(body.wordsCompleted ?? 0, 0, 1_000_000);
+    const durationSeconds = clampInt(body.durationSeconds ?? body.duration ?? 0, 1, 24 * 60 * 60);
+    const totalChars = clampInt(body.totalChars ?? 0, 0, 1_000_000);
+    const correctChars = clampInt(body.correctChars ?? 0, 0, totalChars);
+    const wordsCompleted = clampInt(body.wordsCompleted ?? 0, 0, 1_000_000);
 
-  const accuracyRatio = totalChars > 0 ? correctChars / totalChars : 0;
-  const grossWpm = durationSeconds > 0 ? (totalChars / 5) / (durationSeconds / 60) : 0;
-  const wpm = Math.round(grossWpm);
-  const accuracy = totalChars > 0 ? Math.round(accuracyRatio * 100) : 0;
-  const errorsCount = Math.max(0, totalChars - correctChars);
+    const accuracyRatio = totalChars > 0 ? correctChars / totalChars : 0;
+    const grossWpm = durationSeconds > 0 ? (totalChars / 5) / (durationSeconds / 60) : 0;
+    const wpm = Math.round(grossWpm);
+    const accuracy = totalChars > 0 ? Math.round(accuracyRatio * 100) : 0;
+    const errorsCount = Math.max(0, totalChars - correctChars);
 
-  const difficultyMultipliers = { easy: 1, medium: 1.5, hard: 2, expert: 3 };
-  const score = Math.round(grossWpm * accuracyRatio * (difficultyMultipliers[difficulty] || 1));
+    const difficultyMultipliers = { easy: 1, medium: 1.5, hard: 2, expert: 3 };
+    const score = Math.round(grossWpm * accuracyRatio * (difficultyMultipliers[difficulty] || 1));
 
-  const db = await requireDb(env);
-  const now = Date.now();
+    const db = await requireDb(env);
+    const now = Date.now();
 
-  // Insert game record
-  const recordId = crypto.randomUUID();
-  await db
-    .prepare(
+    // Insert game record
+    const recordId = crypto.randomUUID();
+    await db
+      .prepare(
+        `
+        INSERT INTO game_records (
+          id, user_id, difficulty,
+          duration_seconds, score, wpm, accuracy,
+          words_completed, errors, played_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
-      INSERT INTO game_records (
-        id, user_id, difficulty,
-        duration_seconds, score, wpm, accuracy,
-        words_completed, errors, played_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `
-    )
-    .bind(recordId, current.id, difficulty, durationSeconds, score, wpm, accuracy, wordsCompleted, errorsCount, now)
-    .run();
+      )
+      .bind(recordId, current.id, difficulty, durationSeconds, score, wpm, accuracy, wordsCompleted, errorsCount, now)
+      .run();
 
-  // Load fresh user row to update stats safely
-  const row = await db.prepare('SELECT * FROM users WHERE id = ? LIMIT 1').bind(current.id).first();
-  if (!row) return error('用户不存在', 404);
-  const user = toUserDto(row);
+    // Load fresh user row to update stats safely
+    const row = await db.prepare('SELECT * FROM users WHERE id = ? LIMIT 1').bind(current.id).first();
+    if (!row) return error('用户不存在', 404);
+    const user = toUserDto(row);
 
-  // Update stats (keep behavior aligned with previous localStorage logic)
-  user.stats.points += score;
-  user.stats.bestWPM = Math.max(user.stats.bestWPM, wpm);
-  user.stats.bestAccuracy = Math.max(user.stats.bestAccuracy, accuracy);
-  user.stats.gamesPlayed += 1;
-  user.stats.totalWordsCompleted += wordsCompleted;
-  user.stats.totalErrors += errorsCount;
-  user.stats.totalTimePlayed += durationSeconds;
+    // Update stats (keep behavior aligned with previous localStorage logic)
+    user.stats.points += score;
+    user.stats.bestWPM = Math.max(user.stats.bestWPM, wpm);
+    user.stats.bestAccuracy = Math.max(user.stats.bestAccuracy, accuracy);
+    user.stats.gamesPlayed += 1;
+    user.stats.totalWordsCompleted += wordsCompleted;
+    user.stats.totalErrors += errorsCount;
+    user.stats.totalTimePlayed += durationSeconds;
 
-  if (!user.difficultiesCompleted.includes(difficulty)) {
-    user.difficultiesCompleted.push(difficulty);
-  }
+    if (!user.difficultiesCompleted.includes(difficulty)) {
+      user.difficultiesCompleted.push(difficulty);
+    }
 
-  const newAchievements = checkAchievementsAndApply(user);
+    const newAchievements = checkAchievementsAndApply(user);
 
-  // Persist updated user aggregates
-  await db
-    .prepare(
+    // Persist updated user aggregates
+    await db
+      .prepare(
+        `
+        UPDATE users SET
+          points = ?,
+          best_wpm = ?,
+          best_accuracy = ?,
+          games_played = ?,
+          total_words_completed = ?,
+          total_errors = ?,
+          total_time_played = ?,
+          unlocked_achievements_json = ?,
+          difficulties_completed_json = ?,
+          updated_at = ?
+        WHERE id = ?
       `
-      UPDATE users SET
-        points = ?,
-        best_wpm = ?,
-        best_accuracy = ?,
-        games_played = ?,
-        total_words_completed = ?,
-        total_errors = ?,
-        total_time_played = ?,
-        unlocked_achievements_json = ?,
-        difficulties_completed_json = ?,
-        updated_at = ?
-      WHERE id = ?
-    `
-    )
-    .bind(
-      user.stats.points,
-      user.stats.bestWPM,
-      user.stats.bestAccuracy,
-      user.stats.gamesPlayed,
-      user.stats.totalWordsCompleted,
-      user.stats.totalErrors,
-      user.stats.totalTimePlayed,
-      JSON.stringify(user.unlockedAchievements),
-      JSON.stringify(user.difficultiesCompleted),
-      now,
-      user.id
-    )
-    .run();
+      )
+      .bind(
+        user.stats.points,
+        user.stats.bestWPM,
+        user.stats.bestAccuracy,
+        user.stats.gamesPlayed,
+        user.stats.totalWordsCompleted,
+        user.stats.totalErrors,
+        user.stats.totalTimePlayed,
+        JSON.stringify(user.unlockedAchievements),
+        JSON.stringify(user.difficultiesCompleted),
+        now,
+        user.id
+      )
+      .run();
 
-  // Return updated user
-  const updatedRow = await db.prepare('SELECT * FROM users WHERE id = ? LIMIT 1').bind(user.id).first();
+    // Return updated user
+    const updatedRow = await db.prepare('SELECT * FROM users WHERE id = ? LIMIT 1').bind(user.id).first();
 
-  return ok({
-    message: '成绩已保存',
-    result: { score, wpm, accuracy, errors: errorsCount },
-    user: toUserDto(updatedRow),
-    newAchievements
+    return ok({
+      message: '成绩已保存',
+      result: { score, wpm, accuracy, errors: errorsCount },
+      user: toUserDto(updatedRow),
+      newAchievements
+    });
   });
 }
 
 export async function handleLeaderboard(request, env) {
-  if (request.method !== 'GET') return error('Method Not Allowed', 405);
+  return safe(async () => {
+    if (request.method !== 'GET') return error('Method Not Allowed', 405);
 
-  const url = new URL(request.url);
-  const metric = normalizeString(url.searchParams.get('metric') || 'score');
-  const period = normalizeString(url.searchParams.get('period') || 'all');
-  const limit = clampInt(url.searchParams.get('limit') || 10, 1, 100);
+    const url = new URL(request.url);
+    const metric = normalizeString(url.searchParams.get('metric') || 'score');
+    const period = normalizeString(url.searchParams.get('period') || 'all');
+    const limit = clampInt(url.searchParams.get('limit') || 10, 1, 100);
 
-  if (!['score', 'wpm'].includes(metric)) return error('metric 不正确');
-  if (!['all', 'week'].includes(period)) return error('period 不正确');
+    if (!['score', 'wpm'].includes(metric)) return error('metric 不正确');
+    if (!['all', 'week'].includes(period)) return error('period 不正确');
 
-  const db = await requireDb(env);
-  const now = Date.now();
+    const db = await requireDb(env);
+    const now = Date.now();
 
-  if (period === 'all') {
-    if (metric === 'score') {
+    if (period === 'all') {
+      if (metric === 'score') {
+        const result = await db
+          .prepare(
+            `
+            SELECT id, username, points, best_wpm, best_accuracy
+            FROM users
+            ORDER BY points DESC, best_wpm DESC, best_accuracy DESC
+            LIMIT ?
+          `
+          )
+          .bind(limit)
+          .all();
+
+        const items = (result.results || []).map((r, index) => ({
+          rank: index + 1,
+          username: r.username,
+          value: r.points,
+          points: r.points,
+          bestWPM: r.best_wpm,
+          bestAccuracy: r.best_accuracy
+        }));
+        return ok({ metric, period, items });
+      }
+
       const result = await db
         .prepare(
           `
           SELECT id, username, points, best_wpm, best_accuracy
           FROM users
-          ORDER BY points DESC, best_wpm DESC, best_accuracy DESC
+          ORDER BY best_wpm DESC, best_accuracy DESC, points DESC
           LIMIT ?
         `
         )
@@ -720,7 +825,7 @@ export async function handleLeaderboard(request, env) {
       const items = (result.results || []).map((r, index) => ({
         rank: index + 1,
         username: r.username,
-        value: r.points,
+        value: r.best_wpm,
         points: r.points,
         bestWPM: r.best_wpm,
         bestAccuracy: r.best_accuracy
@@ -728,33 +833,41 @@ export async function handleLeaderboard(request, env) {
       return ok({ metric, period, items });
     }
 
-    const result = await db
-      .prepare(
+    const weekStart = weekStartUtcMs(now);
+    const weekEnd = weekStart + 7 * 24 * 60 * 60 * 1000;
+
+    if (metric === 'score') {
+      const result = await db
+        .prepare(
+          `
+          SELECT
+            u.username AS username,
+            u.points AS points,
+            u.best_wpm AS best_wpm,
+            u.best_accuracy AS best_accuracy,
+            SUM(r.score) AS weekly_value
+          FROM game_records r
+          JOIN users u ON u.id = r.user_id
+          WHERE r.played_at >= ? AND r.played_at < ?
+          GROUP BY r.user_id
+          ORDER BY weekly_value DESC, u.points DESC, u.best_wpm DESC
+          LIMIT ?
         `
-        SELECT id, username, points, best_wpm, best_accuracy
-        FROM users
-        ORDER BY best_wpm DESC, best_accuracy DESC, points DESC
-        LIMIT ?
-      `
-      )
-      .bind(limit)
-      .all();
+        )
+        .bind(weekStart, weekEnd, limit)
+        .all();
 
-    const items = (result.results || []).map((r, index) => ({
-      rank: index + 1,
-      username: r.username,
-      value: r.best_wpm,
-      points: r.points,
-      bestWPM: r.best_wpm,
-      bestAccuracy: r.best_accuracy
-    }));
-    return ok({ metric, period, items });
-  }
+      const items = (result.results || []).map((r, index) => ({
+        rank: index + 1,
+        username: r.username,
+        value: r.weekly_value || 0,
+        points: r.points,
+        bestWPM: r.best_wpm,
+        bestAccuracy: r.best_accuracy
+      }));
+      return ok({ metric, period, weekStart, weekEnd, items });
+    }
 
-  const weekStart = weekStartUtcMs(now);
-  const weekEnd = weekStart + 7 * 24 * 60 * 60 * 1000;
-
-  if (metric === 'score') {
     const result = await db
       .prepare(
         `
@@ -763,12 +876,12 @@ export async function handleLeaderboard(request, env) {
           u.points AS points,
           u.best_wpm AS best_wpm,
           u.best_accuracy AS best_accuracy,
-          SUM(r.score) AS weekly_value
+          MAX(r.wpm) AS weekly_value
         FROM game_records r
         JOIN users u ON u.id = r.user_id
         WHERE r.played_at >= ? AND r.played_at < ?
         GROUP BY r.user_id
-        ORDER BY weekly_value DESC, u.points DESC, u.best_wpm DESC
+        ORDER BY weekly_value DESC, u.best_accuracy DESC, u.points DESC
         LIMIT ?
       `
       )
@@ -784,37 +897,7 @@ export async function handleLeaderboard(request, env) {
       bestAccuracy: r.best_accuracy
     }));
     return ok({ metric, period, weekStart, weekEnd, items });
-  }
-
-  const result = await db
-    .prepare(
-      `
-      SELECT
-        u.username AS username,
-        u.points AS points,
-        u.best_wpm AS best_wpm,
-        u.best_accuracy AS best_accuracy,
-        MAX(r.wpm) AS weekly_value
-      FROM game_records r
-      JOIN users u ON u.id = r.user_id
-      WHERE r.played_at >= ? AND r.played_at < ?
-      GROUP BY r.user_id
-      ORDER BY weekly_value DESC, u.best_accuracy DESC, u.points DESC
-      LIMIT ?
-    `
-    )
-    .bind(weekStart, weekEnd, limit)
-    .all();
-
-  const items = (result.results || []).map((r, index) => ({
-    rank: index + 1,
-    username: r.username,
-    value: r.weekly_value || 0,
-    points: r.points,
-    bestWPM: r.best_wpm,
-    bestAccuracy: r.best_accuracy
-  }));
-  return ok({ metric, period, weekStart, weekEnd, items });
+  });
 }
 
 export async function handleApiRequest(request, env) {
