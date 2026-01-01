@@ -8,6 +8,8 @@ let gameState = {
     currentSentence: '',
     typedSentence: '',
     startTime: null,
+    pausedAt: null,
+    pausedDurationMs: 0,
     timer: null,
     timeLeft: 120,
     score: 0,
@@ -477,6 +479,8 @@ function startGame() {
     gameState.typedSentence = '';
     gameState.correctChars = 0;
     gameState.totalChars = 0;
+    gameState.pausedAt = null;
+    gameState.pausedDurationMs = 0;
     
     // 更新UI
     startBtn.innerHTML = '<i class="fa fa-refresh mr-2"></i> 重新开始';
@@ -512,6 +516,8 @@ function selectRandomSentence() {
 // 开始计时器
 function startTimer() {
     gameState.startTime = Date.now();
+    gameState.pausedAt = null;
+    gameState.pausedDurationMs = 0;
     
     gameState.timer = setInterval(() => {
         if (!gameState.isPaused) {
@@ -536,25 +542,62 @@ function handleTyping(e) {
     const newTypedSentence = e.target.value;
     const oldTypedSentence = gameState.typedSentence;
     gameState.typedSentence = newTypedSentence;
-    gameState.totalChars++;
-    
-    // 播放打字音效
-    if (newTypedSentence.length > oldTypedSentence.length) {
+
+    // 统计本次输入的新增字符（兼容粘贴/中间编辑），用于更准确的 WPM/得分计算
+    const getTextDiff = (beforeText, afterText) => {
+        let prefixLength = 0;
+        const minLength = Math.min(beforeText.length, afterText.length);
+        while (prefixLength < minLength && beforeText[prefixLength] === afterText[prefixLength]) {
+            prefixLength++;
+        }
+
+        let beforeEnd = beforeText.length - 1;
+        let afterEnd = afterText.length - 1;
+        while (
+            beforeEnd >= prefixLength &&
+            afterEnd >= prefixLength &&
+            beforeText[beforeEnd] === afterText[afterEnd]
+        ) {
+            beforeEnd--;
+            afterEnd--;
+        }
+
+        return {
+            index: prefixLength,
+            inserted: afterText.slice(prefixLength, afterEnd + 1),
+            removed: beforeText.slice(prefixLength, beforeEnd + 1)
+        };
+    };
+
+    const diff = getTextDiff(oldTypedSentence, newTypedSentence);
+    const insertedText = diff.inserted || '';
+
+    if (insertedText.length > 0) {
+        // 播放打字音效
         userManager.playSound('typing');
-    }
-    
-    // 计算正确字符数
-    const currentIndex = gameState.typedSentence.length - 1;
-    if (currentIndex >= 0) {
-        if (gameState.typedSentence[currentIndex] === gameState.currentSentence[currentIndex]) {
-            gameState.correctChars++;
-            // 播放正确音效（只在正确时播放）
-            if (newTypedSentence.length > oldTypedSentence.length) {
-                userManager.playSound('correct');
+
+        let correctInserted = 0;
+        let incorrectInserted = 0;
+        for (let i = 0; i < insertedText.length; i++) {
+            const targetIndex = diff.index + i;
+            const expectedChar = gameState.currentSentence[targetIndex];
+            if (expectedChar !== undefined && insertedText[i] === expectedChar) {
+                correctInserted++;
+            } else {
+                incorrectInserted++;
             }
-        } else {
-            // 播放错误音效
+        }
+
+        gameState.totalChars += insertedText.length;
+        gameState.correctChars += correctInserted;
+
+        // 播放正确/错误音效（避免粘贴时连播）
+        if (insertedText.length === 1) {
+            userManager.playSound(incorrectInserted > 0 ? 'error' : 'correct');
+        } else if (incorrectInserted > 0) {
             userManager.playSound('error');
+        } else {
+            userManager.playSound('correct');
         }
     }
     
@@ -573,18 +616,33 @@ function handleTyping(e) {
 
 // 计算统计信息
 function calculateStats() {
-    const elapsedTime = (Date.now() - gameState.startTime) / 1000 / 60; // 分钟
-    const typedWords = gameState.typedSentence.trim().split(/\s+/).length;
-    
-    // 计算WPM (Words Per Minute)
-    gameState.wpm = elapsedTime > 0 ? Math.round(typedWords / elapsedTime) : 0;
-    
+    if (!gameState.startTime) {
+        gameState.wpm = 0;
+        gameState.accuracy = 0;
+        gameState.errors = 0;
+        gameState.score = 0;
+        return;
+    }
+
+    const now = Date.now();
+    const pausedDurationMs =
+        gameState.pausedDurationMs + (gameState.pausedAt ? now - gameState.pausedAt : 0);
+    const elapsedMs = Math.max(0, now - gameState.startTime - pausedDurationMs);
+    const elapsedMinutes = elapsedMs / 1000 / 60;
+
+    const accuracyRatio =
+        gameState.totalChars > 0 ? gameState.correctChars / gameState.totalChars : 0;
+    const grossWpm = elapsedMinutes > 0 ? (gameState.totalChars / 5) / elapsedMinutes : 0;
+    const netWpm = grossWpm * accuracyRatio;
+
+    // 计算 WPM (按标准：5 个字符=1 个词)
+    gameState.wpm = Math.round(grossWpm);
+
     // 计算准确率
-    gameState.accuracy = gameState.totalChars > 0 ? 
-        Math.round((gameState.correctChars / gameState.totalChars) * 100) : 0;
-    
-    // 计算错误数
-    gameState.errors = gameState.totalChars - gameState.correctChars;
+    gameState.accuracy = gameState.totalChars > 0 ? Math.round(accuracyRatio * 100) : 0;
+
+    // 计算错误数（仅统计输入的字符，不包含删除）
+    gameState.errors = Math.max(0, gameState.totalChars - gameState.correctChars);
     
     // 计算分数
     const difficultyMultipliers = {
@@ -595,7 +653,7 @@ function calculateStats() {
     };
     
     const multiplier = difficultyMultipliers[gameState.currentDifficulty] || 1;
-    gameState.score = Math.round(gameState.wpm * (gameState.accuracy / 100) * multiplier);
+    gameState.score = Math.round(netWpm * multiplier);
 }
 
 // 更新统计显示
@@ -653,11 +711,16 @@ function togglePause() {
     gameState.isPaused = !gameState.isPaused;
     
     if (gameState.isPaused) {
+        gameState.pausedAt = Date.now();
         pauseBtn.innerHTML = '<i class="fa fa-play mr-2"></i> 继续';
         typingInput.disabled = true;
         // 播放暂停音效
         userManager.playSound('error');
     } else {
+        if (gameState.pausedAt) {
+            gameState.pausedDurationMs += Date.now() - gameState.pausedAt;
+            gameState.pausedAt = null;
+        }
         pauseBtn.innerHTML = '<i class="fa fa-pause mr-2"></i> 暂停';
         typingInput.disabled = false;
         typingInput.focus();
@@ -783,6 +846,8 @@ function resetGameState() {
     gameState.currentSentence = '';
     gameState.typedSentence = '';
     gameState.startTime = null;
+    gameState.pausedAt = null;
+    gameState.pausedDurationMs = 0;
     gameState.timeLeft = 120;
     gameState.score = 0;
     gameState.wpm = 0;
@@ -794,6 +859,10 @@ function resetGameState() {
     
     if (gameState.timer) {
         clearInterval(gameState.timer);
+    }
+
+    if (gameState.pausedAt) {
+        gameState.pausedAt = null;
     }
     
     // 更新UI
@@ -923,7 +992,9 @@ function loadPracticePage() {
             sentenceElement.textContent = customText;
             
             // 设置游戏状态
-            gameState.startTime = new Date();
+            gameState.startTime = Date.now();
+            gameState.pausedAt = null;
+            gameState.pausedDurationMs = 0;
             gameState.isPlaying = true;
             gameState.isPaused = false;
             
