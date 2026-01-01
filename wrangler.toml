@@ -2,7 +2,13 @@ name = "typingenglish"
 main = "worker/index.js"
 compatibility_date = "2025-12-31"
 
+# For open-source portability, do not bind any custom-domain routes by default.
+# Bind your domain via the Cloudflare dashboard (recommended), or add `routes` in your own fork/private config.
+
 [assets]
 directory = "./public"
 binding = "ASSETS"
 
+[env.preview]
+name = "typingenglish-preview"
+routes = []
