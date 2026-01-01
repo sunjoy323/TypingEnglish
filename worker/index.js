@@ -1,6 +1,12 @@
+import { handleApiRequest } from "../server/api.js";
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    if (url.pathname.startsWith("/api/")) {
+      return handleApiRequest(request, env);
+    }
 
     if (url.pathname === "/github.html") {
       url.pathname = "/Github.html";
@@ -20,4 +26,3 @@ export default {
     return env.ASSETS.fetch(request);
   },
 };
-

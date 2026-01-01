@@ -5,12 +5,16 @@
   "scripts": {
     "build": "node -e \"console.log('No build step required; deploy ./public as-is.')\"",
     "dev": "wrangler dev",
+    "dev:db": "wrangler dev --d1 DB=typingenglish",
     "deploy": "wrangler deploy",
     "deploy:preview": "wrangler deploy --env preview",
     "pages:dev": "wrangler pages dev public",
-    "pages:deploy": "wrangler pages deploy public"
+    "pages:dev:db": "wrangler pages dev public --d1 DB=typingenglish",
+    "pages:deploy": "wrangler pages deploy public",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote"
   },
   "devDependencies": {
-    "wrangler": "3.112.0"
+    "wrangler": "4.56.0"
   }
 }

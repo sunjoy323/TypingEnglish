@@ -1,8 +1,8 @@
 // 认证与用户状态
 
 // 检查登录状态
-function checkAuthStatus() {
-  const user = userManager.getCurrentUser();
+async function checkAuthStatus() {
+  const user = await userManager.getCurrentUser();
   if (user) {
     currentUser = user;
     updateUIForLoggedInUser(user);
@@ -42,12 +42,12 @@ function initializeModalEventListeners() {
   // 表单提交
   document.getElementById('login-form').addEventListener('submit', function (e) {
     e.preventDefault();
-    handleLogin();
+    void handleLogin();
   });
 
   document.getElementById('register-form').addEventListener('submit', function (e) {
     e.preventDefault();
-    handleRegister();
+    void handleRegister();
   });
 
   // 点击模态框外部关闭
@@ -142,15 +142,21 @@ function hideAuthMessage() {
 }
 
 // 处理登录
-function handleLogin() {
+async function handleLogin() {
   const username = document.getElementById('login-username').value;
   const password = document.getElementById('login-password').value;
 
-  const result = userManager.login(username, password);
+  const result = await userManager.login(username, password);
 
   if (result.success) {
     showAuthMessage('登录成功！', true);
     currentUser = result.user;
+    if (currentUser && currentUser.settings) {
+      userManager.setSoundEnabled(currentUser.settings.soundEnabled);
+      if (currentUser.settings.soundVolume !== undefined) {
+        userManager.setSoundVolume(currentUser.settings.soundVolume);
+      }
+    }
     setTimeout(() => {
       hideAuthModal();
       updateUIForLoggedInUser(result.user);
@@ -161,7 +167,7 @@ function handleLogin() {
 }
 
 // 处理注册
-function handleRegister() {
+async function handleRegister() {
   const username = document.getElementById('register-username').value;
   const email = document.getElementById('register-email').value;
   const password = document.getElementById('register-password').value;
@@ -173,7 +179,7 @@ function handleRegister() {
     return;
   }
 
-  const result = userManager.register({ username, email, password });
+  const result = await userManager.register({ username, email, password });
 
   if (result.success) {
     showAuthMessage('注册成功！请登录', true);
@@ -187,8 +193,8 @@ function handleRegister() {
 }
 
 // 登出
-function logout() {
-  userManager.clearCurrentUser();
+async function logout() {
+  await userManager.clearCurrentUser();
   currentUser = null;
   updateUIForLoggedOutUser();
 }
@@ -220,4 +226,3 @@ function updateUIForLoggedOutUser() {
   document.getElementById('mobile-user-info').classList.add('hidden');
   document.getElementById('mobile-login-section').classList.remove('hidden');
 }
-

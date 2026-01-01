@@ -1,8 +1,10 @@
 // 初始化应用（按模块拆分后的入口）
 
-function initializeApp() {
+async function initializeApp() {
+  await userManager.init();
+
   // 检查登录状态
-  checkAuthStatus();
+  await checkAuthStatus();
 
   // 初始化事件监听器
   initializeGameEventListeners();
@@ -12,5 +14,6 @@ function initializeApp() {
 }
 
 // 启动应用
-document.addEventListener('DOMContentLoaded', initializeApp);
-
+document.addEventListener('DOMContentLoaded', () => {
+  void initializeApp();
+});

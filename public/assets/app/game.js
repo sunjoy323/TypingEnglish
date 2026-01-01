@@ -297,7 +297,7 @@ function endGame() {
   showGameOverModal();
 
   // 保存游戏结果
-  saveGameResults();
+  void saveGameResults();
 
   // 播放游戏结束音效
   userManager.playSound('gameOver');
@@ -329,27 +329,33 @@ function hideGameOverModal() {
 }
 
 // 保存游戏结果
-function saveGameResults() {
+async function saveGameResults() {
   if (!currentUser) return;
 
+  const durationSeconds = gameConfig.defaultDurationSeconds - gameState.timeLeft;
   const gameData = {
     difficulty: gameState.currentDifficulty,
-    duration: gameConfig.defaultDurationSeconds - gameState.timeLeft,
+    durationSeconds,
     score: gameState.score,
     wpm: gameState.wpm,
     accuracy: gameState.accuracy,
     wordsCompleted: gameState.wordsCompleted,
-    errors: gameState.errors
+    errors: gameState.errors,
+    totalChars: gameState.totalChars,
+    correctChars: gameState.correctChars
   };
 
-  const newAchievements = userManager.saveGameRecord(currentUser.id, gameData);
-
-  // 更新本地用户数据
-  currentUser = userManager.getCurrentUser();
-  updateUIForLoggedInUser(currentUser);
+  const result = await userManager.saveGameRecord(currentUser.id, gameData);
+  if (!result || !result.success) return;
 
   // 显示新解锁的成就
-  if (newAchievements && newAchievements.length > 0) {
+  if (result.user) {
+    currentUser = result.user;
+    updateUIForLoggedInUser(currentUser);
+  }
+
+  const newAchievements = result.newAchievements || [];
+  if (newAchievements.length > 0) {
     showAchievementNotification(newAchievements[0]);
   }
 }
@@ -423,4 +429,3 @@ function resetGameState() {
   typingInput.value = '';
   sentenceElement.textContent = '准备好了吗?点击开始按钮,然后输入显示的英文句子.';
 }
-

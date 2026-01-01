@@ -223,70 +223,181 @@ function loadAchievementsPage() {
 }
 
 // 加载排行榜页面
-function loadLeaderboardPage() {
+async function loadLeaderboardPage() {
     const leaderboardPage = document.getElementById('leaderboard-page');
-    
-    const leaderboard = userManager.getLeaderboard(10, 'points');
-    
-    let leaderboardHTML = '';
-    
-    leaderboard.forEach((user, index) => {
-        let medalClass = '';
-        let medalIcon = '';
-        
-        if (index === 0) {
-            medalClass = 'medal-gold';
-            medalIcon = '<i class="fa fa-trophy mr-1"></i>';
-        } else if (index === 1) {
-            medalClass = 'medal-silver';
-            medalIcon = '<i class="fa fa-trophy mr-1"></i>';
-        } else if (index === 2) {
-            medalClass = 'medal-bronze';
-            medalIcon = '<i class="fa fa-trophy mr-1"></i>';
-        }
-        
-        leaderboardHTML += `
-            <div class="flex items-center py-4 px-6 bg-white rounded-lg shadow-sm border border-gray-100">
-                <div class="w-8 text-center font-bold ${medalClass}">
-                    ${medalIcon}${index + 1}
-                </div>
-                <div class="flex-1 ml-4">
-                    <div class="font-medium">${user.username}</div>
-                    <div class="text-sm text-gray-500">最佳速度: ${user.stats.bestWPM} WPM | 准确率: ${user.stats.bestAccuracy}%</div>
-                </div>
-                <div class="text-right">
-                    <div class="font-bold text-primary">${user.stats.points}</div>
-                    <div class="text-sm text-gray-500">积分</div>
-                </div>
-            </div>
-        `;
-    });
-    
-    if (leaderboard.length === 0) {
-        leaderboardHTML = `
+
+    const state = { metric: 'score', period: 'all' };
+
+    const render = async () => {
+        const listEl = document.getElementById('leaderboard-list');
+        const metaEl = document.getElementById('leaderboard-meta');
+
+        listEl.innerHTML = `
             <div class="text-center py-12">
                 <div class="w-24 h-24 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-6">
-                    <i class="fa fa-users text-gray-400 text-3xl"></i>
+                    <i class="fa fa-spinner fa-spin text-gray-400 text-3xl"></i>
                 </div>
-                <h3 class="text-xl font-bold text-neutral mb-2">暂无排行榜数据</h3>
-                <p class="text-gray-600">成为第一个登榜的用户！</p>
+                <h3 class="text-xl font-bold text-neutral mb-2">加载中...</h3>
+                <p class="text-gray-600">正在获取排行榜数据</p>
             </div>
         `;
-    }
-    
+
+        const res = await userManager.getLeaderboard({ limit: 10, metric: state.metric, period: state.period });
+        if (!res || !res.success) {
+            listEl.innerHTML = `
+                <div class="text-center py-12">
+                    <div class="w-24 h-24 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <i class="fa fa-exclamation-triangle text-gray-400 text-3xl"></i>
+                    </div>
+                    <h3 class="text-xl font-bold text-neutral mb-2">加载失败</h3>
+                    <p class="text-gray-600">${(res && res.message) || '请稍后再试'}</p>
+                </div>
+            `;
+            metaEl.textContent = '';
+            return;
+        }
+
+        const items = res.items || [];
+
+        const title =
+            state.metric === 'score'
+                ? state.period === 'all'
+                    ? '分数排行 · 历史总榜'
+                    : '分数排行 · 本周周榜'
+                : state.period === 'all'
+                  ? 'WPM排行 · 历史总榜'
+                  : 'WPM排行 · 本周周榜';
+
+        metaEl.textContent = title;
+
+        if (items.length === 0) {
+            listEl.innerHTML = `
+                <div class="text-center py-12">
+                    <div class="w-24 h-24 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <i class="fa fa-users text-gray-400 text-3xl"></i>
+                    </div>
+                    <h3 class="text-xl font-bold text-neutral mb-2">暂无排行榜数据</h3>
+                    <p class="text-gray-600">成为第一个登榜的用户！</p>
+                </div>
+            `;
+            return;
+        }
+
+        let leaderboardHTML = '';
+        items.forEach((item, index) => {
+            let medalClass = '';
+            let medalIcon = '';
+
+            if (index === 0) {
+                medalClass = 'medal-gold';
+                medalIcon = '<i class="fa fa-trophy mr-1"></i>';
+            } else if (index === 1) {
+                medalClass = 'medal-silver';
+                medalIcon = '<i class="fa fa-trophy mr-1"></i>';
+            } else if (index === 2) {
+                medalClass = 'medal-bronze';
+                medalIcon = '<i class="fa fa-trophy mr-1"></i>';
+            }
+
+            const rightValue = state.metric === 'score' ? item.value : `${item.value}`;
+            const rightLabel = state.metric === 'score' ? '积分' : 'WPM';
+
+            const subText =
+                state.metric === 'score'
+                    ? `最佳速度: ${item.bestWPM} WPM | 准确率: ${item.bestAccuracy}%`
+                    : `积分: ${item.points} | 准确率: ${item.bestAccuracy}%`;
+
+            leaderboardHTML += `
+                <div class="flex items-center py-4 px-6 bg-white rounded-lg shadow-sm border border-gray-100">
+                    <div class="w-8 text-center font-bold ${medalClass}">
+                        ${medalIcon}${item.rank || index + 1}
+                    </div>
+                    <div class="flex-1 ml-4">
+                        <div class="font-medium">${item.username}</div>
+                        <div class="text-sm text-gray-500">${subText}</div>
+                    </div>
+                    <div class="text-right">
+                        <div class="font-bold text-primary">${rightValue}</div>
+                        <div class="text-sm text-gray-500">${rightLabel}</div>
+                    </div>
+                </div>
+            `;
+        });
+
+        listEl.innerHTML = `<div class="grid grid-cols-1 gap-4">${leaderboardHTML}</div>`;
+    };
+
     leaderboardPage.innerHTML = `
         <div class="bg-white rounded-2xl shadow-xl overflow-hidden">
             <div class="bg-primary text-white p-6">
                 <h2 class="text-2xl font-bold">排行榜</h2>
-                <p class="mt-2 opacity-90">看看谁是最快的打字高手</p>
+                <p class="mt-2 opacity-90">分数/速度榜单，支持历史总榜与每周周榜</p>
             </div>
-            <div class="p-6">
-                <div class="grid grid-cols-1 gap-4">
-                    ${leaderboardHTML}
+            <div class="p-6 space-y-4">
+                <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                    <div class="inline-flex rounded-lg bg-gray-100 p-1 w-fit">
+                        <button id="lb-metric-score" class="px-4 py-2 rounded-md text-sm font-medium bg-white text-neutral shadow-sm">分数排行</button>
+                        <button id="lb-metric-wpm" class="px-4 py-2 rounded-md text-sm font-medium text-gray-600 hover:text-neutral">WPM排行</button>
+                    </div>
+                    <div class="inline-flex rounded-lg bg-gray-100 p-1 w-fit">
+                        <button id="lb-period-all" class="px-4 py-2 rounded-md text-sm font-medium bg-white text-neutral shadow-sm">历史总榜</button>
+                        <button id="lb-period-week" class="px-4 py-2 rounded-md text-sm font-medium text-gray-600 hover:text-neutral">本周周榜</button>
+                    </div>
                 </div>
+
+                <div class="text-sm text-gray-500" id="leaderboard-meta"></div>
+                <div id="leaderboard-list"></div>
             </div>
         </div>
     `;
+
+    const metricScoreBtn = document.getElementById('lb-metric-score');
+    const metricWpmBtn = document.getElementById('lb-metric-wpm');
+    const periodAllBtn = document.getElementById('lb-period-all');
+    const periodWeekBtn = document.getElementById('lb-period-week');
+
+    const setActive = () => {
+        const active = 'bg-white text-neutral shadow-sm';
+        const inactive = 'text-gray-600 hover:text-neutral';
+
+        metricScoreBtn.className = `px-4 py-2 rounded-md text-sm font-medium ${
+            state.metric === 'score' ? active : inactive
+        }`;
+        metricWpmBtn.className = `px-4 py-2 rounded-md text-sm font-medium ${
+            state.metric === 'wpm' ? active : inactive
+        }`;
+
+        periodAllBtn.className = `px-4 py-2 rounded-md text-sm font-medium ${
+            state.period === 'all' ? active : inactive
+        }`;
+        periodWeekBtn.className = `px-4 py-2 rounded-md text-sm font-medium ${
+            state.period === 'week' ? active : inactive
+        }`;
+    };
+
+    metricScoreBtn.addEventListener('click', async () => {
+        state.metric = 'score';
+        setActive();
+        await render();
+    });
+    metricWpmBtn.addEventListener('click', async () => {
+        state.metric = 'wpm';
+        setActive();
+        await render();
+    });
+    periodAllBtn.addEventListener('click', async () => {
+        state.period = 'all';
+        setActive();
+        await render();
+    });
+    periodWeekBtn.addEventListener('click', async () => {
+        state.period = 'week';
+        setActive();
+        await render();
+    });
+
+    setActive();
+    await render();
 }
 
 // 加载设置页面
@@ -444,11 +555,17 @@ function loadSettingsPage() {
 }
 
 // 更新用户设置
-function updateUserSetting(key, value) {
+async function updateUserSetting(key, value) {
     if (!currentUser) return;
-    
+
+    currentUser.settings = currentUser.settings || {};
     currentUser.settings[key] = value;
-    userManager.updateUser(currentUser);
+
+    const result = await userManager.updateSetting(key, value);
+    if (result && result.success && result.user) {
+        currentUser = result.user;
+        updateUIForLoggedInUser(currentUser);
+    }
 }
 
 

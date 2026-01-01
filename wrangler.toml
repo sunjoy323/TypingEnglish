@@ -9,6 +9,15 @@ compatibility_date = "2025-12-31"
 directory = "./public"
 binding = "ASSETS"
 
+# Optional D1 binding (required for /api/* in Workers mode).
+# For open-source portability we don't hard-code your database id here.
+# Bind `DB` via the Cloudflare dashboard, or uncomment and fill your own id:
+#
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "typingenglish"
+# database_id = "<YOUR_DATABASE_ID>"
+
 [env.preview]
 name = "typingenglish-preview"
 routes = []
