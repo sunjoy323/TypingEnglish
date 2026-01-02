@@ -18,7 +18,9 @@ function initializeGameEventListeners() {
 }
 
 // 开始游戏
-function startGame() {
+async function startGame() {
+  const unlockPromise = userManager.soundManager.unlock();
+
   if (!currentUser) {
     showAuthModal();
     return;
@@ -60,6 +62,7 @@ function startGame() {
   updateStatsDisplay();
 
   // 播放游戏开始音效
+  await unlockPromise;
   userManager.playSound('gameStart');
 }
 
