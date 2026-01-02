@@ -1,0 +1,27 @@
+# This config enables D1 binding without committing your real `database_id`.
+# Required env var: `D1_DATABASE_ID` (set it in Cloudflare Git integration build environment variables).
+
+name = "typingenglish"
+main = "worker/index.js"
+compatibility_date = "2025-12-31"
+
+# For open-source portability, do not bind any custom-domain routes by default.
+# Bind your domain via the Cloudflare dashboard (recommended), or add `routes` in your own fork/private config.
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "typingenglish"
+database_id = "${D1_DATABASE_ID}"
+
+[env.preview]
+name = "typingenglish-preview"
+routes = []
+
+[[env.preview.d1_databases]]
+binding = "DB"
+database_name = "typingenglish"
+database_id = "${D1_DATABASE_ID}"

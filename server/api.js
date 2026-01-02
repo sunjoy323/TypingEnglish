@@ -1,6 +1,8 @@
 const SESSION_COOKIE_NAME = 'te_session';
 const SESSION_TTL_DAYS = 30;
-const PBKDF2_ITERATIONS = 120_000;
+// Cloudflare Workers WebCrypto currently rejects PBKDF2 iteration counts > 100000.
+const PBKDF2_MAX_ITERATIONS = 100_000;
+const PBKDF2_ITERATIONS = PBKDF2_MAX_ITERATIONS;
 
 const DEFAULT_ACHIEVEMENTS = [
   {
@@ -275,6 +277,7 @@ async function verifyPassword(password, stored) {
   if (algo !== 'pbkdf2_sha256') return false;
   const iterations = Number.parseInt(iterationsText, 10);
   if (!Number.isFinite(iterations) || iterations < 10_000) return false;
+  if (iterations > PBKDF2_MAX_ITERATIONS) return false;
   const salt = base64UrlDecode(saltB64);
   const expected = base64UrlDecode(hashB64);
   const derived = await pbkdf2Hash(password, salt, iterations);

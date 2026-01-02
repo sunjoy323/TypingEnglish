@@ -11,12 +11,17 @@ binding = "ASSETS"
 
 # Optional D1 binding (required for /api/* in Workers mode).
 # For open-source portability we don't hard-code your database id here.
-# Bind `DB` via the Cloudflare dashboard, or uncomment and fill your own id:
+# Bind `DB` via the Cloudflare dashboard, or uncomment and fill your own id.
+# If you use Cloudflare Git integration, prefer `wrangler.with-db.toml` (uses `D1_DATABASE_ID` env var) to avoid losing bindings after redeploys:
 #
 # [[d1_databases]]
 # binding = "DB"
 # database_name = "typingenglish"
 # database_id = "<YOUR_DATABASE_ID>"
+#
+# After adding the block above (locally), you can run:
+# - Local:  `npm run db:migrate:local`
+# - Remote: `npm run db:migrate:remote`
 
 [env.preview]
 name = "typingenglish-preview"

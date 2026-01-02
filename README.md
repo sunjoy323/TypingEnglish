@@ -106,21 +106,25 @@ Pages 会自动为非生产分支/PR 生成预览部署，通常无需单独配�
   - 推荐填 `npm ci`
   - 解释：在 CI 环境安装依赖（主要是 `wrangler`），比 `npm install` 更稳定；需要仓库包含 `package-lock.json`
 - Deploy command（部署命令，生产分支）：
-  - 填 `npm run deploy`
-  - 解释：等价于执行 `wrangler deploy`（读取 `wrangler.toml`）
+  - 仅静态站点（无 `/api`）：填 `npm run deploy`
+  - 启用 D1 后端（有 `/api`）：填 `npm run deploy:with-db`
+  - 解释：Git 集成会以 `wrangler` 配置为准；若部署命令读取的配置里没有 D1 绑定，每次部署都可能把你在控制台手动添加的 D1 绑定“覆盖/清空”
 - Non-production branch deploy command（非生产分支部署命令）：
-  - 推荐填 `npm run deploy:preview`
-  - 解释：该命令会使用 `wrangler.toml` 的 `[env.preview]`，将非生产分支部署到单独的 Worker 名称（避免覆盖生产 Worker）
+  - 仅静态站点：填 `npm run deploy:preview`
+  - 启用 D1 后端：填 `npm run deploy:preview:with-db`
+  - 解释：该命令会使用配置里的 `[env.preview]`，将非生产分支部署到单独的 Worker 名称（避免覆盖生产 Worker）
 
-4) 绑定 D1（让 `/api/*` 生效）
+4) 绑定 D1（让 `/api/*` 生效，并避免 Git 自动部署后绑定丢失）
 
-- Worker → **Settings** → **Bindings** → **D1 Database** → Add binding
-  - Variable name：填 `DB`
-  - Select database：选择你的 D1 数据库（例如 `typingenglish`）
+推荐做法：使用 `wrangler.with-db.toml` + 环境变量，把 `database_id` 放在 Cloudflare 配置里（不提交到 Git）。
 
-然后在本地执行一次迁移：`npm run db:migrate:remote`（等价于 `wrangler d1 migrations apply DB --remote`）。
+- Cloudflare 控制台 → **D1** → 进入你的数据库 → 复制 **Database ID**
+- 在 Cloudflare Git 集成的构建环境变量中添加：`D1_DATABASE_ID=<YOUR_DATABASE_ID>`
+- 生产分支 Deploy command 使用 `npm run deploy:with-db`（预览分支使用 `npm run deploy:preview:with-db`）
 
-注意：若你用 `npx wrangler`，会默认拉取最新版（例如 `wrangler 4.x`），迁移命令会强依赖 `wrangler.toml` 里的 `[[d1_databases]]` 配置；推荐优先使用仓库内置脚本：`npm run db:migrate:remote`。
+然后在本地执行一次迁移：`npm run db:migrate:remote:with-db`（等价于 `wrangler -c wrangler.with-db.toml d1 migrations apply DB --remote`）。
+
+注意：若你用 `npx wrangler`，会默认拉取最新版（例如 `wrangler 4.x`）。远端迁移需要 `[[d1_databases]]` 配置；推荐优先使用仓库内置脚本：`npm run db:migrate:remote:with-db`（如果你已在本地直接配置了 `wrangler.toml`，也可以用 `npm run db:migrate:remote`）。
 
 5) 必填/易错项：Worker 名称必须全局唯一
 
@@ -147,3 +151,4 @@ Pages 会自动为非生产分支/PR 生成预览部署，通常无需单独配�
 ## 常见问题（Cloudflare）
 
 - 接口返回 `code=INTERNAL_ERROR`：响应会包含 `errorId`，可在 Cloudflare Logs（Pages/Workers）中按 `errorId` 搜索具体异常栈。
+- 注册时报错 `NotSupportedError: Pbkdf2 failed: iteration counts above 100000 are not supported`：Cloudflare Workers 的 PBKDF2 迭代次数上限为 `100000`，本项目已将迭代次数调整为 `100000`（见 `server/api.js`），更新并重新部署即可。
