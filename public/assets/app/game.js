@@ -26,6 +26,8 @@ async function startGame() {
     return;
   }
 
+  hideSentenceTranslationToast();
+
   if (gameState.isPlaying) {
     // 重新开始游戏
     resetGameState();
@@ -72,6 +74,10 @@ function selectRandomSentence() {
   const sentenceArray = sentences[difficulty];
   const randomIndex = Math.floor(Math.random() * sentenceArray.length);
   gameState.currentSentence = sentenceArray[randomIndex];
+  gameState.currentSentenceZh =
+    typeof sentenceTranslations !== 'undefined' && sentenceTranslations[difficulty]
+      ? sentenceTranslations[difficulty][randomIndex] || ''
+      : '';
 
   // 更新UI
   updateSentenceDisplay();
@@ -244,6 +250,46 @@ function updateSentenceDisplay() {
   sentenceElement.innerHTML = html;
 }
 
+let translationToastTimer = null;
+let translationToastCleanupTimer = null;
+
+function hideSentenceTranslationToast() {
+  const toast = document.getElementById('sentence-translation-toast');
+  if (!toast) return;
+
+  toast.classList.add('hidden', 'opacity-0', 'translate-y-2');
+  toast.classList.remove('opacity-100', 'translate-y-0');
+}
+
+function showSentenceTranslationToast(translation) {
+  if (!translation || gameState.currentDifficulty === 'easy') return;
+
+  const toast = document.getElementById('sentence-translation-toast');
+  const textEl = document.getElementById('sentence-translation-text');
+  if (!toast || !textEl) return;
+
+  textEl.textContent = `上一句释义：${translation}`;
+
+  if (translationToastTimer) clearTimeout(translationToastTimer);
+  if (translationToastCleanupTimer) clearTimeout(translationToastCleanupTimer);
+
+  toast.classList.remove('hidden');
+  // 下一帧触发过渡动画
+  requestAnimationFrame(() => {
+    toast.classList.remove('opacity-0', 'translate-y-2');
+    toast.classList.add('opacity-100', 'translate-y-0');
+  });
+
+  translationToastTimer = setTimeout(() => {
+    toast.classList.remove('opacity-100', 'translate-y-0');
+    toast.classList.add('opacity-0', 'translate-y-2');
+
+    translationToastCleanupTimer = setTimeout(() => {
+      toast.classList.add('hidden');
+    }, 320);
+  }, gameConfig.translationToastDurationMs || 2500);
+}
+
 // 完成句子
 function completeSentence() {
   const wordsInSentence = gameState.currentSentence.trim().split(/\s+/).length;
@@ -251,6 +297,11 @@ function completeSentence() {
 
   // 播放完成音效
   userManager.playSound('complete');
+
+  // 展示中文释义（不会阻止继续打字）
+  if (gameState.currentSentenceZh) {
+    showSentenceTranslationToast(gameState.currentSentenceZh);
+  }
 
   // 短暂延迟后选择新句子
   setTimeout(() => {

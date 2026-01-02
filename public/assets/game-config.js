@@ -10,6 +10,7 @@
     sentenceCompleteDelayMs: 500,
     wpmCharsPerWord: 5,
     achievementToastDurationMs: 5000,
+    translationToastDurationMs: 2500,
     scoreDifficultyMultipliers: {
       easy: 1,
       medium: 1.5,
@@ -32,4 +33,3 @@
     }
   };
 })();
-

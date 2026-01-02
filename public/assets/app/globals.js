@@ -9,6 +9,7 @@ const gameConfig =
     sentenceCompleteDelayMs: 500,
     wpmCharsPerWord: 5,
     achievementToastDurationMs: 5000,
+    translationToastDurationMs: 2500,
     scoreDifficultyMultipliers: {
       easy: 1,
       medium: 1.5,
@@ -25,6 +26,7 @@ let gameState = {
   isPlaying: false,
   isPaused: false,
   currentSentence: '',
+  currentSentenceZh: '',
   typedSentence: '',
   startTime: null,
   pausedAt: null,
@@ -67,4 +69,3 @@ const finalWordsElement = document.getElementById('final-words');
 const achievementNotification = document.getElementById('achievement-notification');
 const achievementText = document.getElementById('achievement-text');
 const achievementPoints = document.getElementById('achievement-points');
-
