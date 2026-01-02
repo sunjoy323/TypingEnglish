@@ -15,6 +15,20 @@ function initializeGameEventListeners() {
 
   // 分享按钮
   shareBtn.addEventListener('click', shareResults);
+
+  const reviewBtn = document.getElementById('session-review-btn');
+  if (reviewBtn) reviewBtn.addEventListener('click', openSessionReviewScreen);
+
+  const closeBtn = document.getElementById('session-review-close');
+  if (closeBtn) closeBtn.addEventListener('click', () => closeSessionReviewScreen());
+
+  const backdrop = document.getElementById('session-review-backdrop');
+  if (backdrop) backdrop.addEventListener('click', () => closeSessionReviewScreen());
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    closeSessionReviewScreen();
+  });
 }
 
 // 开始游戏
@@ -259,6 +273,16 @@ function recordSentenceForReview({ completed }) {
     difficulty: gameState.currentDifficulty,
     completed: Boolean(completed)
   };
+  const last = gameState.sessionSentences[gameState.sessionSentences.length - 1];
+  if (
+    last &&
+    last.en === entry.en &&
+    last.zh === entry.zh &&
+    last.difficulty === entry.difficulty &&
+    last.completed === entry.completed
+  ) {
+    return;
+  }
   gameState.sessionSentences.push(entry);
 }
 
@@ -277,86 +301,223 @@ function getDifficultyLabel(difficulty) {
   }
 }
 
-function renderSessionSentenceReview() {
-  const listEl = document.getElementById('session-sentences-list');
-  const emptyEl = document.getElementById('session-sentences-empty');
-  const countEl = document.getElementById('session-sentences-count');
-  if (!listEl || !emptyEl || !countEl) return;
+let sessionReviewBodyOverflow = null;
+
+function updateSessionReviewButton() {
+  const btn = document.getElementById('session-review-btn');
+  const metaEl = document.getElementById('session-review-btn-meta');
+  if (!btn || !metaEl) return;
+
+  const items = Array.isArray(gameState.sessionSentences) ? gameState.sessionSentences : [];
+  if (items.length === 0) {
+    metaEl.textContent = '· 暂无记录';
+    btn.disabled = true;
+    btn.classList.add('opacity-50', 'cursor-not-allowed');
+    return;
+  }
+
+  metaEl.textContent = `· ${items.length} 句`;
+  btn.disabled = false;
+  btn.classList.remove('opacity-50', 'cursor-not-allowed');
+}
+
+function renderSessionReviewScreen() {
+  const listEl = document.getElementById('session-review-list');
+  const emptyEl = document.getElementById('session-review-empty');
+  const metaEl = document.getElementById('session-review-meta');
+  const statsEl = document.getElementById('session-review-stats');
+  if (!listEl || !emptyEl || !metaEl || !statsEl) return;
 
   listEl.innerHTML = '';
+  statsEl.innerHTML = '';
 
   const rawItems = Array.isArray(gameState.sessionSentences) ? gameState.sessionSentences : [];
-  const items = [];
-  const seen = new Set();
-  for (const item of rawItems) {
-    if (!item || !item.en) continue;
-    const key = `${item.difficulty || ''}::${item.en}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    items.push(item);
-  }
+  const items = rawItems.filter((item) => item && item.en);
+  const completedCount = items.filter((item) => item.completed !== false).length;
+
+  metaEl.textContent =
+    items.length === 0 ? '本局暂无记录' : `共 ${items.length} 句 · 已完成 ${completedCount} 句 · 未完成 ${items.length - completedCount} 句`;
+
+  const createStatChip = (iconClass, label, value) => {
+    const chip = document.createElement('div');
+    chip.className =
+      'px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-white/80 text-xs flex items-center gap-2';
+
+    const icon = document.createElement('i');
+    icon.className = `${iconClass} text-white/70`;
+    chip.appendChild(icon);
+
+    const text = document.createElement('span');
+    text.textContent = `${label}: ${value}`;
+    chip.appendChild(text);
+
+    return chip;
+  };
+
+  statsEl.appendChild(createStatChip('fa fa-star', '分数', gameState.score));
+  statsEl.appendChild(createStatChip('fa fa-tachometer', 'WPM', gameState.wpm));
+  statsEl.appendChild(createStatChip('fa fa-bullseye', '正确率', `${gameState.accuracy}%`));
+  statsEl.appendChild(createStatChip('fa fa-font', '完成单词', gameState.wordsCompleted));
 
   if (items.length === 0) {
     emptyEl.classList.remove('hidden');
-    countEl.textContent = '';
     return;
   }
 
   emptyEl.classList.add('hidden');
-  countEl.textContent = `${items.length} 句`;
 
   const fragment = document.createDocumentFragment();
   items.forEach((item, index) => {
     const card = document.createElement('div');
-    card.className = 'flex gap-3 bg-white rounded-lg border border-gray-100 p-3 shadow-sm';
+    card.className =
+      'relative overflow-hidden rounded-2xl bg-white/10 border border-white/20 ring-1 ring-white/10 backdrop-blur-md p-5 shadow-lg transition-all duration-200 hover:bg-white/20 hover:border-white/30';
+    if (item.completed === false) {
+      card.classList.add('opacity-90');
+    }
+
+    const glow = document.createElement('div');
+    glow.className =
+      'pointer-events-none absolute -inset-px opacity-40 bg-gradient-to-br from-primary/20 via-transparent to-secondary/20';
+    card.appendChild(glow);
+
+    const body = document.createElement('div');
+    body.className = 'relative';
+
+    const top = document.createElement('div');
+    top.className = 'flex items-center justify-between gap-3';
+
+    const left = document.createElement('div');
+    left.className = 'flex items-center gap-3 min-w-0';
 
     const indexBadge = document.createElement('div');
     indexBadge.className =
-      'mt-0.5 flex-shrink-0 w-7 h-7 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center';
+      'w-9 h-9 rounded-xl bg-white/10 border border-white/20 text-white text-xs font-bold flex items-center justify-center flex-shrink-0';
     indexBadge.textContent = String(index + 1);
-    card.appendChild(indexBadge);
+    left.appendChild(indexBadge);
 
-    const body = document.createElement('div');
-    body.className = 'min-w-0 flex-1';
+    const diff = document.createElement('div');
+    diff.className = 'min-w-0';
 
-    const header = document.createElement('div');
-    header.className = 'flex items-start justify-between gap-2';
+    const diffLabel = document.createElement('div');
+    diffLabel.className = 'text-xs text-white/60';
+    diffLabel.textContent = getDifficultyLabel(item.difficulty);
+    diff.appendChild(diffLabel);
 
-    const enEl = document.createElement('div');
-    enEl.className = 'text-sm md:text-base font-medium text-neutral leading-snug break-words';
-    enEl.textContent = item.en;
-    header.appendChild(enEl);
+    const status = document.createElement('div');
+    status.className = 'text-xs text-white/70';
+    status.textContent = item.completed === false ? '未完成' : '已完成';
+    diff.appendChild(status);
 
-    const tagWrap = document.createElement('div');
-    tagWrap.className = 'flex flex-col items-end gap-1 flex-shrink-0';
+    left.appendChild(diff);
+    top.appendChild(left);
+
+    const tags = document.createElement('div');
+    tags.className = 'flex items-center gap-2 flex-shrink-0';
 
     const diffTag = document.createElement('span');
-    diffTag.className = 'px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-700';
+    diffTag.className = 'px-2.5 py-1 rounded-full text-xs bg-white/10 text-white/80 border border-white/20';
     diffTag.textContent = getDifficultyLabel(item.difficulty);
-    tagWrap.appendChild(diffTag);
+    tags.appendChild(diffTag);
 
-    if (item.completed === false) {
-      const statusTag = document.createElement('span');
-      statusTag.className = 'px-2 py-0.5 rounded-full text-xs bg-yellow-100 text-yellow-800';
-      statusTag.textContent = '未完成';
-      tagWrap.appendChild(statusTag);
-    }
+    const statusTag = document.createElement('span');
+    statusTag.className =
+      item.completed === false
+        ? 'px-2.5 py-1 rounded-full text-xs bg-yellow-500/20 text-yellow-200 border border-yellow-200/20'
+        : 'px-2.5 py-1 rounded-full text-xs bg-secondary/20 text-white border border-white/10';
+    statusTag.textContent = item.completed === false ? '未完成' : '完成';
+    tags.appendChild(statusTag);
 
-    header.appendChild(tagWrap);
-    body.appendChild(header);
+    top.appendChild(tags);
+    body.appendChild(top);
 
-    if (item.zh) {
-      const zhEl = document.createElement('div');
-      zhEl.className = 'mt-2 text-sm text-gray-600 leading-snug break-words';
-      zhEl.textContent = item.zh;
-      body.appendChild(zhEl);
-    }
+    const grid = document.createElement('div');
+    grid.className = 'mt-4 grid grid-cols-1 md:grid-cols-2 gap-4';
+
+    const enBlock = document.createElement('div');
+    enBlock.className = 'min-w-0';
+
+    const enLabel = document.createElement('div');
+    enLabel.className = 'text-xs tracking-widest text-white/50';
+    enLabel.textContent = 'EN';
+    enBlock.appendChild(enLabel);
+
+    const enText = document.createElement('div');
+    enText.className = 'mt-2 text-white text-base md:text-lg font-semibold leading-snug break-words';
+    enText.textContent = item.en;
+    enBlock.appendChild(enText);
+
+    const zhBlock = document.createElement('div');
+    zhBlock.className = 'min-w-0';
+
+    const zhLabel = document.createElement('div');
+    zhLabel.className = 'text-xs tracking-widest text-white/50';
+    zhLabel.textContent = '中文';
+    zhBlock.appendChild(zhLabel);
+
+    const zhText = document.createElement('div');
+    zhText.className = 'mt-2 text-white/80 text-sm md:text-base leading-snug break-words';
+    zhText.textContent = item.zh ? item.zh : '（暂无译文）';
+    zhBlock.appendChild(zhText);
+
+    grid.appendChild(enBlock);
+    grid.appendChild(zhBlock);
+    body.appendChild(grid);
 
     card.appendChild(body);
     fragment.appendChild(card);
   });
 
   listEl.appendChild(fragment);
+}
+
+function openSessionReviewScreen() {
+  const modal = document.getElementById('session-review-modal');
+  const panel = document.getElementById('session-review-panel');
+  if (!modal || !panel) return;
+
+  renderSessionReviewScreen();
+
+  if (sessionReviewBodyOverflow === null) {
+    sessionReviewBodyOverflow = document.body.style.overflow || '';
+  }
+  document.body.style.overflow = 'hidden';
+
+  modal.classList.remove('hidden');
+  requestAnimationFrame(() => {
+    panel.classList.remove('opacity-0', 'translate-y-2', 'scale-[0.99]');
+    panel.classList.add('opacity-100', 'translate-y-0', 'scale-100');
+  });
+
+  const closeBtn = document.getElementById('session-review-close');
+  if (closeBtn) closeBtn.focus();
+}
+
+function closeSessionReviewScreen({ immediate = false } = {}) {
+  const modal = document.getElementById('session-review-modal');
+  const panel = document.getElementById('session-review-panel');
+  if (!modal || !panel) return;
+
+  const resetBodyOverflow = () => {
+    if (sessionReviewBodyOverflow === null) return;
+    document.body.style.overflow = sessionReviewBodyOverflow;
+    sessionReviewBodyOverflow = null;
+  };
+
+  if (immediate) {
+    modal.classList.add('hidden');
+    panel.classList.add('opacity-0', 'translate-y-2', 'scale-[0.99]');
+    panel.classList.remove('opacity-100', 'translate-y-0', 'scale-100');
+    resetBodyOverflow();
+    return;
+  }
+
+  panel.classList.add('opacity-0', 'translate-y-2', 'scale-[0.99]');
+  panel.classList.remove('opacity-100', 'translate-y-0', 'scale-100');
+
+  setTimeout(() => {
+    modal.classList.add('hidden');
+    resetBodyOverflow();
+  }, 260);
 }
 
 // 完成句子
@@ -434,7 +595,7 @@ function showGameOverModal() {
   finalWpmElement.textContent = `${gameState.wpm} WPM`;
   finalAccuracyElement.textContent = `${gameState.accuracy}%`;
   finalWordsElement.textContent = gameState.wordsCompleted;
-  renderSessionSentenceReview();
+  updateSessionReviewButton();
 
   gameOverModal.classList.remove('hidden');
   setTimeout(() => {
@@ -445,6 +606,8 @@ function showGameOverModal() {
 
 // 隐藏游戏结束模态框
 function hideGameOverModal() {
+  closeSessionReviewScreen({ immediate: true });
+
   modalContent.style.opacity = '0';
   modalContent.style.transform = 'scale(0.95)';
 

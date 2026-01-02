@@ -282,7 +282,7 @@
 
     <!-- 游戏结束模态框 -->
     <div id="game-over-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden">
-        <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full mx-4 transform transition-all duration-300 scale-95 opacity-0 max-h-[90vh] overflow-y-auto" id="modal-content">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 transform transition-all duration-300 scale-95 opacity-0" id="modal-content">
             <div class="p-6 text-center">
                 <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 text-primary mb-4">
                     <i class="fa fa-trophy text-3xl"></i>
@@ -315,19 +315,11 @@
                     <span id="achievement-points" class="font-bold ml-2"></span>
                 </div>
 
-                <div id="session-sentences-section" class="mb-6 text-left">
-                    <div class="flex items-center justify-between mb-3">
-                        <div class="flex items-center text-neutral font-semibold">
-                            <i class="fa fa-book mr-2 text-primary"></i>
-                            <span>本局句子回顾</span>
-                        </div>
-                        <span id="session-sentences-count" class="text-xs text-gray-500"></span>
-                    </div>
-                    <div class="bg-gray-50 rounded-xl border border-gray-100 p-4">
-                        <p id="session-sentences-empty" class="text-sm text-gray-500 hidden">本局暂无输入过的句子，继续练习吧！</p>
-                        <div id="session-sentences-list" class="space-y-3 max-h-56 overflow-y-auto pr-1"></div>
-                    </div>
-                </div>
+                <button id="session-review-btn" class="w-full mb-4 px-4 py-3 bg-gray-50 text-neutral rounded-lg border border-gray-200 hover:bg-gray-100 transition-all duration-200 flex items-center justify-center gap-2">
+                    <i class="fa fa-book text-primary"></i>
+                    <span class="font-medium">查看本局句子回顾</span>
+                    <span id="session-review-btn-meta" class="text-xs text-gray-500"></span>
+                </button>
                 
                 <div class="flex space-x-4">
                     <button id="play-again-btn" class="flex-1 px-4 py-3 bg-primary text-white rounded-lg hover:bg-primary/90 transition-all duration-200">
@@ -407,6 +399,51 @@
                 <div class="flex flex-col items-center">
                     <div class="w-10 h-10 border-4 border-primary/30 border-t-primary rounded-full animate-spin"></div>
                     <p id="auth-loading-text" class="mt-3 text-sm text-gray-700">处理中...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 本局句子回顾：全屏界面 -->
+    <div id="session-review-modal" class="fixed inset-0 z-50 hidden" role="dialog" aria-modal="true" aria-labelledby="session-review-title">
+        <div id="session-review-backdrop" class="absolute inset-0 bg-gradient-to-br from-neutral via-neutral/95 to-black"></div>
+        <div class="absolute inset-0 opacity-40 bg-[radial-gradient(circle_at_20%_10%,rgba(22,93,255,0.55),transparent_35%),radial-gradient(circle_at_80%_70%,rgba(54,211,153,0.35),transparent_40%)]"></div>
+
+        <div id="session-review-panel" class="relative h-full w-full opacity-0 translate-y-2 scale-[0.99] transition-all duration-300">
+            <div class="h-full w-full max-w-6xl mx-auto px-4 md:px-8 py-6 flex flex-col">
+                <div class="flex items-center justify-between gap-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-11 h-11 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center backdrop-blur-sm">
+                            <i class="fa fa-book text-white text-lg"></i>
+                        </div>
+                        <div>
+                            <h3 id="session-review-title" class="text-xl md:text-2xl font-bold text-white leading-tight">本局句子回顾</h3>
+                            <p id="session-review-meta" class="text-xs md:text-sm text-white/70"></p>
+                        </div>
+                    </div>
+
+                    <button id="session-review-close" class="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/20 backdrop-blur-sm transition-all duration-200">
+                        <i class="fa fa-times mr-2"></i>关闭
+                    </button>
+                </div>
+
+                <div class="mt-6 flex-1 min-h-0">
+                    <div class="h-full bg-white/10 border border-white/20 rounded-3xl backdrop-blur-md overflow-hidden shadow-xl flex flex-col">
+                        <div class="p-4 md:p-6 border-b border-white/10 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                            <div class="text-white/80 text-sm">中英文对照 · 不打断练习心流</div>
+                            <div id="session-review-stats" class="flex flex-wrap gap-2"></div>
+                        </div>
+
+                        <div class="p-4 md:p-6 flex-1 min-h-0 flex flex-col">
+                            <p id="session-review-empty" class="text-white/70 text-sm hidden">本局暂无输入过的句子，继续练习吧！</p>
+                            <div id="session-review-list" class="mt-4 flex-1 min-h-0 overflow-y-auto pr-1 grid grid-cols-1 lg:grid-cols-2 gap-4"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-4 text-xs text-white/50 flex items-center justify-between">
+                    <span>提示：按 Esc 或点背景可快速关闭</span>
+                    <span class="hidden md:inline">TypingEnglish</span>
                 </div>
             </div>
         </div>
