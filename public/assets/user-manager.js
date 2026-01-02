@@ -873,10 +873,29 @@ class LocalUserStore {
 
   getLeaderboard({ limit = 10, metric = 'score', period = 'all' } = {}) {
     const users = this.getUsers().map((u) => this.getUserWithoutPassword(u));
+    const bestScoreById = new Map();
+    for (const user of users) {
+      let bestScore = 0;
+      if (user && Array.isArray(user.gameHistory)) {
+        for (const record of user.gameHistory) {
+          bestScore = Math.max(bestScore, record && record.score ? record.score : 0);
+        }
+      }
+      bestScoreById.set(user.id, bestScore);
+    }
 
     if (period === 'all') {
       if (metric === 'score') {
-        return users.sort((a, b) => b.stats.points - a.stats.points).slice(0, limit);
+        return users
+          .sort((a, b) => {
+            const bestA = bestScoreById.get(a.id) || 0;
+            const bestB = bestScoreById.get(b.id) || 0;
+            if (bestB !== bestA) return bestB - bestA;
+            if (b.stats.bestWPM !== a.stats.bestWPM) return b.stats.bestWPM - a.stats.bestWPM;
+            if (b.stats.bestAccuracy !== a.stats.bestAccuracy) return b.stats.bestAccuracy - a.stats.bestAccuracy;
+            return b.stats.points - a.stats.points;
+          })
+          .slice(0, limit);
       }
       return users.sort((a, b) => b.stats.bestWPM - a.stats.bestWPM).slice(0, limit);
     }
@@ -901,7 +920,7 @@ class LocalUserStore {
         };
 
         if (metric === 'score') {
-          existing.value += record.score || 0;
+          existing.value = Math.max(existing.value, record.score || 0);
         } else {
           existing.value = Math.max(existing.value, record.wpm || 0);
         }
@@ -1138,10 +1157,16 @@ class UserManager {
       period,
       items: list.map((u, index) => {
         if (period === 'all') {
+          let bestScore = 0;
+          if (metric === 'score' && u && Array.isArray(u.gameHistory)) {
+            for (const record of u.gameHistory) {
+              bestScore = Math.max(bestScore, record && record.score ? record.score : 0);
+            }
+          }
           return {
             rank: index + 1,
             username: u.username,
-            value: metric === 'score' ? u.stats.points : u.stats.bestWPM,
+            value: metric === 'score' ? bestScore : u.stats.bestWPM,
             points: u.stats.points,
             bestWPM: u.stats.bestWPM,
             bestAccuracy: u.stats.bestAccuracy

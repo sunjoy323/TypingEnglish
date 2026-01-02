@@ -262,8 +262,8 @@ async function loadLeaderboardPage() {
         const title =
             state.metric === 'score'
                 ? state.period === 'all'
-                    ? '分数排行 · 历史总榜'
-                    : '分数排行 · 本周周榜'
+                    ? '最高分排行 · 历史总榜'
+                    : '最高分排行 · 本周周榜'
                 : state.period === 'all'
                   ? 'WPM排行 · 历史总榜'
                   : 'WPM排行 · 本周周榜';
@@ -300,12 +300,12 @@ async function loadLeaderboardPage() {
             }
 
             const rightValue = state.metric === 'score' ? item.value : `${item.value}`;
-            const rightLabel = state.metric === 'score' ? '积分' : 'WPM';
+            const rightLabel = state.metric === 'score' ? '最高分' : 'WPM';
 
             const subText =
                 state.metric === 'score'
                     ? `最佳速度: ${item.bestWPM} WPM | 准确率: ${item.bestAccuracy}%`
-                    : `积分: ${item.points} | 准确率: ${item.bestAccuracy}%`;
+                    : `总积分: ${item.points} | 准确率: ${item.bestAccuracy}%`;
 
             leaderboardHTML += `
                 <div class="flex items-center py-4 px-6 bg-white rounded-lg shadow-sm border border-gray-100">

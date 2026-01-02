@@ -1336,9 +1336,17 @@ export async function handleLeaderboard(request, env) {
         const result = await db
           .prepare(
             `
-            SELECT id, username, points, best_wpm, best_accuracy
-            FROM users
-            ORDER BY points DESC, best_wpm DESC, best_accuracy DESC
+            SELECT
+              u.id AS id,
+              u.username AS username,
+              u.points AS points,
+              u.best_wpm AS best_wpm,
+              u.best_accuracy AS best_accuracy,
+              COALESCE(MAX(r.score), 0) AS best_score
+            FROM users u
+            LEFT JOIN game_records r ON r.user_id = u.id
+            GROUP BY u.id, u.username, u.points, u.best_wpm, u.best_accuracy
+            ORDER BY best_score DESC, u.best_wpm DESC, u.best_accuracy DESC, u.points DESC
             LIMIT ?
           `
           )
@@ -1348,7 +1356,7 @@ export async function handleLeaderboard(request, env) {
         const items = (result.results || []).map((r, index) => ({
           rank: index + 1,
           username: r.username,
-          value: r.points,
+          value: r.best_score || 0,
           points: r.points,
           bestWPM: r.best_wpm,
           bestAccuracy: r.best_accuracy
@@ -1391,7 +1399,7 @@ export async function handleLeaderboard(request, env) {
             u.points AS points,
             u.best_wpm AS best_wpm,
             u.best_accuracy AS best_accuracy,
-            SUM(r.score) AS weekly_value
+            MAX(r.score) AS weekly_value
           FROM game_records r
           JOIN users u ON u.id = r.user_id
           WHERE r.played_at >= ? AND r.played_at < ?

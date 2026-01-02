@@ -26,8 +26,6 @@ async function startGame() {
     return;
   }
 
-  hideSentenceTranslationToast();
-
   if (gameState.isPlaying) {
     // 重新开始游戏
     resetGameState();
@@ -44,6 +42,7 @@ async function startGame() {
   gameState.typedSentence = '';
   gameState.correctChars = 0;
   gameState.totalChars = 0;
+  gameState.sessionSentences = [];
   gameState.pausedAt = null;
   gameState.pausedDurationMs = 0;
 
@@ -250,44 +249,114 @@ function updateSentenceDisplay() {
   sentenceElement.innerHTML = html;
 }
 
-let translationToastTimer = null;
-let translationToastCleanupTimer = null;
+function recordSentenceForReview({ completed }) {
+  if (!gameState.currentSentence) return;
+  if (!Array.isArray(gameState.sessionSentences)) gameState.sessionSentences = [];
 
-function hideSentenceTranslationToast() {
-  const toast = document.getElementById('sentence-translation-toast');
-  if (!toast) return;
-
-  toast.classList.add('hidden', 'opacity-0', 'translate-y-2');
-  toast.classList.remove('opacity-100', 'translate-y-0');
+  const entry = {
+    en: gameState.currentSentence,
+    zh: gameState.currentSentenceZh || '',
+    difficulty: gameState.currentDifficulty,
+    completed: Boolean(completed)
+  };
+  gameState.sessionSentences.push(entry);
 }
 
-function showSentenceTranslationToast(translation) {
-  if (!translation || gameState.currentDifficulty === 'easy') return;
+function getDifficultyLabel(difficulty) {
+  switch (difficulty) {
+    case 'easy':
+      return '简单';
+    case 'medium':
+      return '中等';
+    case 'hard':
+      return '困难';
+    case 'expert':
+      return '专家';
+    default:
+      return '未知';
+  }
+}
 
-  const toast = document.getElementById('sentence-translation-toast');
-  const textEl = document.getElementById('sentence-translation-text');
-  if (!toast || !textEl) return;
+function renderSessionSentenceReview() {
+  const listEl = document.getElementById('session-sentences-list');
+  const emptyEl = document.getElementById('session-sentences-empty');
+  const countEl = document.getElementById('session-sentences-count');
+  if (!listEl || !emptyEl || !countEl) return;
 
-  textEl.textContent = `上一句释义：${translation}`;
+  listEl.innerHTML = '';
 
-  if (translationToastTimer) clearTimeout(translationToastTimer);
-  if (translationToastCleanupTimer) clearTimeout(translationToastCleanupTimer);
+  const rawItems = Array.isArray(gameState.sessionSentences) ? gameState.sessionSentences : [];
+  const items = [];
+  const seen = new Set();
+  for (const item of rawItems) {
+    if (!item || !item.en) continue;
+    const key = `${item.difficulty || ''}::${item.en}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push(item);
+  }
 
-  toast.classList.remove('hidden');
-  // 下一帧触发过渡动画
-  requestAnimationFrame(() => {
-    toast.classList.remove('opacity-0', 'translate-y-2');
-    toast.classList.add('opacity-100', 'translate-y-0');
+  if (items.length === 0) {
+    emptyEl.classList.remove('hidden');
+    countEl.textContent = '';
+    return;
+  }
+
+  emptyEl.classList.add('hidden');
+  countEl.textContent = `${items.length} 句`;
+
+  const fragment = document.createDocumentFragment();
+  items.forEach((item, index) => {
+    const card = document.createElement('div');
+    card.className = 'flex gap-3 bg-white rounded-lg border border-gray-100 p-3 shadow-sm';
+
+    const indexBadge = document.createElement('div');
+    indexBadge.className =
+      'mt-0.5 flex-shrink-0 w-7 h-7 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center';
+    indexBadge.textContent = String(index + 1);
+    card.appendChild(indexBadge);
+
+    const body = document.createElement('div');
+    body.className = 'min-w-0 flex-1';
+
+    const header = document.createElement('div');
+    header.className = 'flex items-start justify-between gap-2';
+
+    const enEl = document.createElement('div');
+    enEl.className = 'text-sm md:text-base font-medium text-neutral leading-snug break-words';
+    enEl.textContent = item.en;
+    header.appendChild(enEl);
+
+    const tagWrap = document.createElement('div');
+    tagWrap.className = 'flex flex-col items-end gap-1 flex-shrink-0';
+
+    const diffTag = document.createElement('span');
+    diffTag.className = 'px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-700';
+    diffTag.textContent = getDifficultyLabel(item.difficulty);
+    tagWrap.appendChild(diffTag);
+
+    if (item.completed === false) {
+      const statusTag = document.createElement('span');
+      statusTag.className = 'px-2 py-0.5 rounded-full text-xs bg-yellow-100 text-yellow-800';
+      statusTag.textContent = '未完成';
+      tagWrap.appendChild(statusTag);
+    }
+
+    header.appendChild(tagWrap);
+    body.appendChild(header);
+
+    if (item.zh) {
+      const zhEl = document.createElement('div');
+      zhEl.className = 'mt-2 text-sm text-gray-600 leading-snug break-words';
+      zhEl.textContent = item.zh;
+      body.appendChild(zhEl);
+    }
+
+    card.appendChild(body);
+    fragment.appendChild(card);
   });
 
-  translationToastTimer = setTimeout(() => {
-    toast.classList.remove('opacity-100', 'translate-y-0');
-    toast.classList.add('opacity-0', 'translate-y-2');
-
-    translationToastCleanupTimer = setTimeout(() => {
-      toast.classList.add('hidden');
-    }, 320);
-  }, gameConfig.translationToastDurationMs || 2500);
+  listEl.appendChild(fragment);
 }
 
 // 完成句子
@@ -298,10 +367,7 @@ function completeSentence() {
   // 播放完成音效
   userManager.playSound('complete');
 
-  // 展示中文释义（不会阻止继续打字）
-  if (gameState.currentSentenceZh) {
-    showSentenceTranslationToast(gameState.currentSentenceZh);
-  }
+  recordSentenceForReview({ completed: true });
 
   // 短暂延迟后选择新句子
   setTimeout(() => {
@@ -342,6 +408,10 @@ function endGame() {
   gameState.isPlaying = false;
   clearInterval(gameState.timer);
 
+  if (gameState.typedSentence && gameState.currentSentence) {
+    recordSentenceForReview({ completed: gameState.typedSentence === gameState.currentSentence });
+  }
+
   // 更新UI
   startBtn.innerHTML = '<i class="fa fa-play mr-2"></i> 开始游戏';
   pauseBtn.classList.add('hidden');
@@ -364,6 +434,7 @@ function showGameOverModal() {
   finalWpmElement.textContent = `${gameState.wpm} WPM`;
   finalAccuracyElement.textContent = `${gameState.accuracy}%`;
   finalWordsElement.textContent = gameState.wordsCompleted;
+  renderSessionSentenceReview();
 
   gameOverModal.classList.remove('hidden');
   setTimeout(() => {
@@ -452,6 +523,8 @@ function resetGameState() {
   gameState.isPlaying = false;
   gameState.isPaused = false;
   gameState.currentSentence = '';
+  gameState.currentSentenceZh = '';
+  gameState.sessionSentences = [];
   gameState.typedSentence = '';
   gameState.startTime = null;
   gameState.pausedAt = null;

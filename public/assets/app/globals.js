@@ -27,6 +27,7 @@ let gameState = {
   isPaused: false,
   currentSentence: '',
   currentSentenceZh: '',
+  sessionSentences: [],
   typedSentence: '',
   startTime: null,
   pausedAt: null,
