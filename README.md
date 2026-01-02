@@ -119,10 +119,12 @@ Pages 会自动为非生产分支/PR 生成预览部署，通常无需单独配�
 推荐做法：使用 `wrangler.with-db.toml` + 环境变量，把 `database_id` 放在 Cloudflare 配置里（不提交到 Git）。
 
 - Cloudflare 控制台 → **D1** → 进入你的数据库 → 复制 **Database ID**
-- 在 Cloudflare Git 集成的构建环境变量中添加：`D1_DATABASE_ID=<YOUR_DATABASE_ID>`
+- 在 Cloudflare Git 集成的**构建环境变量**中添加：`D1_DATABASE_ID=<YOUR_DATABASE_ID>`（Production/Preview 环境都建议配置）
 - 生产分支 Deploy command 使用 `npm run deploy:with-db`（预览分支使用 `npm run deploy:preview:with-db`）
 
-然后在本地执行一次迁移：`npm run db:migrate:remote:with-db`（等价于 `wrangler -c wrangler.with-db.toml d1 migrations apply DB --remote`）。
+说明：部署/迁移脚本会先根据 `D1_DATABASE_ID` 生成 `wrangler.resolved.toml`（已 gitignore），再执行 `wrangler`。
+
+然后在本地执行一次迁移：`npm run db:migrate:remote:with-db`。
 
 注意：若你用 `npx wrangler`，会默认拉取最新版（例如 `wrangler 4.x`）。远端迁移需要 `[[d1_databases]]` 配置；推荐优先使用仓库内置脚本：`npm run db:migrate:remote:with-db`（如果你已在本地直接配置了 `wrangler.toml`，也可以用 `npm run db:migrate:remote`）。
 
@@ -152,3 +154,4 @@ Pages 会自动为非生产分支/PR 生成预览部署，通常无需单独配�
 
 - 接口返回 `code=INTERNAL_ERROR`：响应会包含 `errorId`，可在 Cloudflare Logs（Pages/Workers）中按 `errorId` 搜索具体异常栈。
 - 注册时报错 `NotSupportedError: Pbkdf2 failed: iteration counts above 100000 are not supported`：Cloudflare Workers 的 PBKDF2 迭代次数上限为 `100000`，本项目已将迭代次数调整为 `100000`（见 `server/api.js`），更新并重新部署即可。
+- 部署时报错 `binding DB of type d1 must have a valid id specified (code: 10021)`：通常是 `D1_DATABASE_ID` 没有传到 deploy 步骤或格式不对；检查 Git 集成的构建环境变量（Production/Preview），值必须是 D1 的 **Database ID**（UUID）。

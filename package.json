@@ -8,15 +8,15 @@
     "dev:db": "wrangler dev",
     "deploy": "wrangler deploy --env=\"\"",
     "deploy:preview": "wrangler deploy --env preview",
-    "deploy:with-db": "wrangler -c wrangler.with-db.toml deploy --env=\"\"",
-    "deploy:preview:with-db": "wrangler -c wrangler.with-db.toml deploy --env preview",
+    "deploy:with-db": "node scripts/resolve-wrangler-config.mjs && wrangler -c wrangler.resolved.toml deploy --env=\"\"",
+    "deploy:preview:with-db": "node scripts/resolve-wrangler-config.mjs && wrangler -c wrangler.resolved.toml deploy --env preview",
     "pages:dev": "wrangler pages dev public",
     "pages:dev:db": "wrangler pages dev public",
     "pages:deploy": "wrangler pages deploy public",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
-    "db:migrate:local:with-db": "wrangler -c wrangler.with-db.toml d1 migrations apply DB --local",
-    "db:migrate:remote:with-db": "wrangler -c wrangler.with-db.toml d1 migrations apply DB --remote"
+    "db:migrate:local:with-db": "node scripts/resolve-wrangler-config.mjs && wrangler -c wrangler.resolved.toml d1 migrations apply DB --local",
+    "db:migrate:remote:with-db": "node scripts/resolve-wrangler-config.mjs && wrangler -c wrangler.resolved.toml d1 migrations apply DB --remote"
   },
   "devDependencies": {
     "wrangler": "4.56.0"
