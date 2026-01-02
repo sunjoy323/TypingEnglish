@@ -329,7 +329,7 @@
 
     <!-- 登录/注册模态框 -->
     <div id="auth-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden">
-        <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 transform transition-all duration-300 scale-95 opacity-0" id="auth-modal-content">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 transform transition-all duration-300 scale-95 opacity-0 relative" id="auth-modal-content">
             <div class="p-6">
                 <div class="flex justify-between items-center mb-6">
                     <h3 class="text-2xl font-bold text-neutral" id="auth-modal-title">登录</h3>
@@ -386,6 +386,14 @@
                 </form>
                 
                 <div id="auth-message" class="mt-4 p-3 rounded-lg hidden"></div>
+            </div>
+
+            <!-- Auth loading overlay -->
+            <div id="auth-loading" class="absolute inset-0 bg-white/70 backdrop-blur-sm flex items-center justify-center rounded-2xl hidden">
+                <div class="flex flex-col items-center">
+                    <div class="w-10 h-10 border-4 border-primary/30 border-t-primary rounded-full animate-spin"></div>
+                    <p id="auth-loading-text" class="mt-3 text-sm text-gray-700">处理中...</p>
+                </div>
             </div>
         </div>
     </div>

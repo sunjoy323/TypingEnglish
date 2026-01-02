@@ -1,5 +1,27 @@
 // 认证与用户状态
 
+let authBusy = false;
+
+function setAuthBusy(isBusy, text = '处理中...') {
+  authBusy = Boolean(isBusy);
+
+  const overlay = document.getElementById('auth-loading');
+  if (overlay) overlay.classList.toggle('hidden', !authBusy);
+
+  const overlayText = document.getElementById('auth-loading-text');
+  if (overlayText) overlayText.textContent = text;
+
+  const content = document.getElementById('auth-modal-content');
+  if (!content) return;
+
+  content.setAttribute('aria-busy', authBusy ? 'true' : 'false');
+
+  const elements = content.querySelectorAll('input, button, select, textarea');
+  elements.forEach((el) => {
+    el.disabled = authBusy;
+  });
+}
+
 // 检查登录状态
 async function checkAuthStatus() {
   const user = await userManager.getCurrentUser();
@@ -28,14 +50,19 @@ function initializeModalEventListeners() {
   document.getElementById('mobile-logout-btn').addEventListener('click', logout);
 
   // 关闭模态框按钮
-  document.getElementById('close-auth-modal').addEventListener('click', hideAuthModal);
+  document.getElementById('close-auth-modal').addEventListener('click', () => {
+    if (authBusy) return;
+    hideAuthModal();
+  });
 
   // 登录/注册标签切换
   document.getElementById('login-tab').addEventListener('click', function () {
+    if (authBusy) return;
     showLoginForm();
   });
 
   document.getElementById('register-tab').addEventListener('click', function () {
+    if (authBusy) return;
     showRegisterForm();
   });
 
@@ -52,6 +79,7 @@ function initializeModalEventListeners() {
 
   // 点击模态框外部关闭
   document.getElementById('auth-modal').addEventListener('click', function (e) {
+    if (authBusy) return;
     if (e.target === this) {
       hideAuthModal();
     }
@@ -66,6 +94,7 @@ function initializeModalEventListeners() {
 
 // 显示认证模态框
 function showAuthModal() {
+  setAuthBusy(false);
   const modal = document.getElementById('auth-modal');
   const modalContent = document.getElementById('auth-modal-content');
 
@@ -81,6 +110,7 @@ function showAuthModal() {
 
 // 隐藏认证模态框
 function hideAuthModal() {
+  setAuthBusy(false);
   const modal = document.getElementById('auth-modal');
   const modalContent = document.getElementById('auth-modal-content');
 
@@ -143,10 +173,19 @@ function hideAuthMessage() {
 
 // 处理登录
 async function handleLogin() {
+  if (authBusy) return;
   const username = document.getElementById('login-username').value;
   const password = document.getElementById('login-password').value;
 
-  const result = await userManager.login(username, password);
+  setAuthBusy(true, '正在登录...');
+  let result = { success: false, message: '网络错误，请稍后再试' };
+  try {
+    result = await userManager.login(username, password);
+  } catch {
+    // keep fallback result
+  } finally {
+    setAuthBusy(false);
+  }
 
   if (result.success) {
     showAuthMessage('登录成功！', true);
@@ -168,6 +207,7 @@ async function handleLogin() {
 
 // 处理注册
 async function handleRegister() {
+  if (authBusy) return;
   const username = document.getElementById('register-username').value;
   const email = document.getElementById('register-email').value;
   const password = document.getElementById('register-password').value;
@@ -179,7 +219,15 @@ async function handleRegister() {
     return;
   }
 
-  const result = await userManager.register({ username, email, password });
+  setAuthBusy(true, '正在注册...');
+  let result = { success: false, message: '网络错误，请稍后再试' };
+  try {
+    result = await userManager.register({ username, email, password });
+  } catch {
+    // keep fallback result
+  } finally {
+    setAuthBusy(false);
+  }
 
   if (result.success) {
     showAuthMessage('注册成功！请登录', true);
