@@ -143,3 +143,7 @@ Pages 会自动为非生产分支/PR 生成预览部署，通常无需单独配�
 - Workers：`npm run deploy`
 
 说明：如需绑定自定义域名/路由，请在 Cloudflare 控制台或 `wrangler` 中配置。
+
+## 常见问题（Cloudflare）
+
+- 接口返回 `code=INTERNAL_ERROR`：响应会包含 `errorId`，可在 Cloudflare Logs（Pages/Workers）中按 `errorId` 搜索具体异常栈。

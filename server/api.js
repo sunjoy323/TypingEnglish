@@ -139,6 +139,14 @@ function mapInternalError(err) {
     };
   }
 
+  if (raw.includes('no such column') || raw.includes('has no column named')) {
+    return {
+      status: 503,
+      code: 'DB_SCHEMA_MISSING',
+      message: '数据库表结构不匹配（缺少字段）。请更新并执行最新的 D1 migrations，再重试。'
+    };
+  }
+
   if (raw.includes('UNIQUE constraint failed: users.username')) {
     return { status: 409, code: 'USERNAME_TAKEN', message: '用户名已存在' };
   }
@@ -147,15 +155,37 @@ function mapInternalError(err) {
     return { status: 409, code: 'EMAIL_TAKEN', message: '邮箱已被注册' };
   }
 
+  if (
+    raw.includes('script exceeded time limit') ||
+    raw.includes('CPU time') ||
+    raw.includes('exceeded CPU time') ||
+    raw.includes('exceeded time limit')
+  ) {
+    return { status: 503, code: 'TIME_LIMIT', message: '服务器繁忙，请稍后重试' };
+  }
+
   return { status: 500, code: 'INTERNAL_ERROR', message: '服务器内部错误，请稍后重试' };
+}
+
+function uuidv4() {
+  if (typeof crypto?.randomUUID === 'function') return crypto.randomUUID();
+
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 async function safe(handler) {
   try {
     return await handler();
   } catch (err) {
+    const errorId = uuidv4();
+    console.error(`[TypingEnglish API Error] ${errorId}`, err);
     const mapped = mapInternalError(err);
-    return error(mapped.message, mapped.status, { code: mapped.code });
+    return error(mapped.message, mapped.status, { code: mapped.code, errorId });
   }
 }
 
@@ -367,7 +397,7 @@ async function createSessionForUser(request, env, userId) {
   const token = base64UrlEncode(crypto.getRandomValues(new Uint8Array(32)));
   const tokenHash = base64UrlEncode(await sha256(new TextEncoder().encode(token)));
 
-  const sessionId = crypto.randomUUID();
+  const sessionId = uuidv4();
   await db
     .prepare('INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?)')
     .bind(sessionId, userId, tokenHash, now, expiresAt)
@@ -499,7 +529,7 @@ export async function handleRegister(request, env) {
     if (existingEmail) return error('邮箱已被注册');
 
     const now = Date.now();
-    const userId = crypto.randomUUID();
+    const userId = uuidv4();
     const passwordHash = await hashPassword(password);
     const settings = JSON.stringify({
       soundEnabled: true,
@@ -691,7 +721,7 @@ export async function handleScores(request, env) {
     const now = Date.now();
 
     // Insert game record
-    const recordId = crypto.randomUUID();
+    const recordId = uuidv4();
     await db
       .prepare(
         `
